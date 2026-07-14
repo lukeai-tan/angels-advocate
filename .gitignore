@@ -1,0 +1,29 @@
+# --- OS cruft (you're crossing Windows <-> WSL, so ignore both) ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+*~
+
+# --- Editor / VS Code ---
+.vscode/
+*.code-workspace
+
+# --- TTS: Piper voice models & generated audio ---
+# Voice models are large binary blobs downloaded per-machine — never commit them.
+# (voices.conf points at ~/piper/models by default, outside the repo, but guard
+#  against anyone dropping models in-tree.)
+models/
+*.onnx
+*.onnx.json
+# Generated / temp speech output
+*.wav
+*.mp3
+*.tmp
+
+# --- Secrets / local overrides (nothing here today, but cheap insurance) ---
+.env
+.env.*
+*.local
+
+# --- Logs ---
+*.log
