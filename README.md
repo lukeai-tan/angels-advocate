@@ -11,6 +11,9 @@ decides.
 It's the inversion of the familiar Devil's Advocate: someone finally arguing *for* the idea, as hard
 as the Devil argues against it.
 
+> **How this was built.** This repo was built using the very workflow it defines: the author set the
+> direction and made the verdicts; Claude argued both sides, implemented, and verified its own work.
+
 ---
 
 ## The three roles
