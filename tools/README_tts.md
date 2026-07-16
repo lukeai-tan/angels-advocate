@@ -1,13 +1,25 @@
 # TTS voices for Angel / Devil / Arbiter
 
-Speak Claude's responses aloud with a distinct Piper voice per speaker, in
-English, German, Chinese, or Japanese. Runs in **WSL** (Windows 11 + WSLg gives
-you working audio out of the box).
+Speak Claude's responses aloud with a distinct voice per speaker, in English,
+German, Chinese, or Japanese. Runs in **WSL** (Windows 11 + WSLg gives you
+working audio out of the box).
+
+**Two TTS engines**, chosen per voice in `voices.conf`:
+- **Piper** (en/de/zh) — a standalone binary; `speak.sh` pipes text to it per
+  segment. Simple, no daemon.
+- **Supertonic via sherpa-onnx** (ja) — Piper has no Japanese voice, so Japanese
+  uses the Supertonic model through a small persistent daemon (`sherpa_ttsd.py`)
+  that loads the model once and keeps it warm. It gives 10 distinct speakers, so
+  Japanese finally gets a different voice per role like en/de do.
 
 ## Pieces
-- `speak.sh` — reads a response on stdin, splits it by speaker (😇/😈/⚖️), and
-  plays each segment with the matching voice.
-- `voices.conf` — maps `<lang>_<speaker>` → a Piper model file. Edit paths here.
+- `speak.sh` — reads a response on stdin, splits it by speaker (😇/😈/⚖️/✅), and
+  plays each segment with the matching voice. Dispatches to Piper or the sherpa
+  daemon based on the `voices.conf` value.
+- `sherpa_ttsd.py` — persistent Supertonic TTS daemon (Japanese). `speak.sh`
+  auto-starts it on first ja use; it self-exits after 10 min idle.
+- `voices.conf` — maps `<lang>_<speaker>` → a Piper `.onnx` path **or** a
+  `supertonic:<sid>` engine ref. Edit here.
 - CLAUDE.md — instructs Claude to write in the requested language and emit a
   `<!-- speak:xx -->` tag so `speak.sh` knows which language trio to use.
 
@@ -48,6 +60,49 @@ you working audio out of the box).
    chmod +x speak.sh
    ```
 
+## Japanese setup (Supertonic / sherpa-onnx)
+
+Japanese does **not** use Piper. It uses the Supertonic model via `sherpa-onnx`.
+
+1. **Install sherpa-onnx** into the Python you'll point `speak.sh` at:
+   ```bash
+   pip install sherpa-onnx
+   ```
+   ⚠️ **SSL cert gotcha:** on some setups pip's bundled CA bundle can't verify
+   pypi's chain and you'll see `CERTIFICATE_VERIFY_FAILED`. If so, use the system
+   CA bundle just for this install:
+   ```bash
+   SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt pip install sherpa-onnx
+   ```
+   The pip wheel ships the Python API + `sherpa-onnx-cli` (no
+   `sherpa-onnx-offline-tts` binary) — `sherpa_ttsd.py` drives the Python API, so
+   that's all you need.
+
+2. **Download the Supertonic model** (7 files) into `~/piper/models/supertonic/`:
+   ```bash
+   mkdir -p ~/piper/models/supertonic && cd ~/piper/models/supertonic
+   REPO=csukuangfj2/sherpa-onnx-supertonic-3-tts-int8-2026-05-11
+   for f in duration_predictor.int8.onnx text_encoder.int8.onnx \
+            vector_estimator.int8.onnx vocoder.int8.onnx tts.json \
+            unicode_indexer.bin voice.bin; do
+     curl -sL -O "https://huggingface.co/$REPO/resolve/main/$f"
+   done
+   ```
+   Override the location with `SUPERTONIC_DIR` if you put it elsewhere.
+
+3. **Tell `speak.sh` which Python has sherpa** (if not the default `python3`):
+   ```bash
+   export SHERPA_PY=/path/to/python3   # e.g. ~/miniforge3/bin/python3
+   ```
+
+4. **Speaker mapping** lives in `voices.conf` as `ja_*="supertonic:<sid>"`
+   (sid 0-9). The defaults are chosen by pitch (angel=0 bright female, devil=6
+   deepest male, arbiter=2 deeper female, verifier=8 mid male). Swap sids to
+   taste — each is a distinct speaker.
+
+The daemon auto-starts on first Japanese use and self-exits after 10 min idle
+(`SHERPA_IDLE_TIMEOUT` to change). Nothing to manage by hand.
+
 ## Test it (before any hook)
 ```bash
 printf '%s\n' \
@@ -74,9 +129,12 @@ verify `speak.sh` standalone first — the hook is just the delivery mechanism.
   post-implementation conformance line) each route to their own voice. Set
   `<lang>_verifier` in `voices.conf`; if you lack a fourth model, point it at the
   arbiter's — it only reads the closing ✅ line.
-- **zh/ja have fewer distinct models** than en/de, so the speakers may sound
-  similar in those languages. `voices.conf` reuses one model per language by
-  default; point them at different models if you find good ones.
+- **zh reuses one model** for all four speakers (Piper has only `huayan` for
+  Chinese), so zh speakers sound alike; point them at different models if you
+  find good ones. **ja** does *not* have this limit — Supertonic's 10 speakers
+  give each role a distinct voice.
+- **First Japanese call is slow** (~a few seconds) while the daemon loads the
+  model; subsequent calls are fast because the model stays warm.
 - **Language must match the text.** `speak.sh` trusts the `speak:xx` tag; if the
   text is English but tagged `de`, a German voice will mispronounce it. Claude
   sets tag and text together, so this only bites if you force `--lang` wrongly.
