@@ -67,10 +67,14 @@ reads the final assistant message from that JSONL and pipes it in. Build and
 verify `speak.sh` standalone first — the hook is just the delivery mechanism.
 
 ## Honest limits
-- **Voices split only on gated decisions.** A response with no 😇/😈/⚖️ markers is
+- **Voices split only on gated decisions.** A response with no 😇/😈/⚖️/✅ markers is
   spoken entirely in the Arbiter voice — that's expected (ungated turns are
   single-voice).
-- **zh/ja have fewer distinct models** than en/de, so the three speakers may sound
+- **Four speakers.** 😇 Angel, 😈 Devil, ⚖️ Arbiter, and ✅ Verifier (the
+  post-implementation conformance line) each route to their own voice. Set
+  `<lang>_verifier` in `voices.conf`; if you lack a fourth model, point it at the
+  arbiter's — it only reads the closing ✅ line.
+- **zh/ja have fewer distinct models** than en/de, so the speakers may sound
   similar in those languages. `voices.conf` reuses one model per language by
   default; point them at different models if you find good ones.
 - **Language must match the text.** `speak.sh` trusts the `speak:xx` tag; if the

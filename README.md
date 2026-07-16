@@ -36,7 +36,8 @@ as the Devil argues against it.
      stands in for rigor.
    - *Structural debate* (heavy/irreversible/forked) — spawns the real `angel` and `devil`
      subagents in parallel (independent context + tools), runs one cross-examination round, then
-     synthesizes.
+     synthesizes. **Forked** decisions get a dedicated shape: one steelman per approach + one Devil
+     across all, and a verdict that *picks* the winner (and can graft a runner-up's best idea onto it).
 3. **Every gated decision ends in an accountable verdict** — a rigor line (how much scrutiny this
    got), the two cases, and a verdict that disposes of each Devil dealbreaker *by name*.
 4. **The loop closes after the doing.** Once the Arbiter acts on a consequential verdict, it spawns

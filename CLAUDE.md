@@ -141,6 +141,27 @@ The **Rigor line** keeps the format honest: it tells the user exactly how much s
 polish never stands in for independence. The **Dealbreakers line** is mandatory — every dealbreaker
 the Devil raised must be disposed of *by name*; a verdict may not silently drop one.
 
+### Forked-decision format (comparing 2+ approaches)
+
+The format above defends *one* direction — it has a single Angel and can't hold a comparison. When
+the gate fires on a **fork** (spawn one advocate *per approach* + one Devil across all), use this
+shape instead: one steelman line per option, the Devil's cross-cutting attack ranking them, then a
+verdict that *picks* rather than merely proceeds.
+
+```
+🔎 Rigor: <light self-check | structural debate>  ·  Gate: fork — <the competing approaches, named>
+😇 Angel · Option A — <strongest case FOR A>
+😇 Angel · Option B — <strongest case FOR B>   (one line per option under comparison)
+😈 Devil — <attack across all options; which objection sinks which; ranked least-bad → worst>
+⚖️ Verdict — <the option chosen + why it beats the others, not just why it's adequate>
+   Dealbreakers: <each Devil DEALBREAKER named + "resolved by ___" OR "accepting because ___">
+                 (none → say "none raised")
+   Runners-up: <the best idea from a rejected option worth grafting onto the winner, if any>
+```
+
+The **Runners-up line** stops a fork from throwing away a good idea just because its option lost —
+the winning approach can often absorb the best part of a rejected one.
+
 Then act on the verdict. If the Devil raised something you can't resolve without the user, ask
 before proceeding. If the call is genuinely close, surface it to the user as a recommendation
 rather than deciding for them.

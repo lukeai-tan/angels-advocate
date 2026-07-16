@@ -9,9 +9,10 @@
 # How it works:
 #   1. Language: from a `<!-- speak:xx -->` tag in the text, or --lang, else en.
 #   2. Splitting: every line is attributed to a speaker by its leading marker:
-#        😇 or "Angel"   -> angel
-#        😈 or "Devil"   -> devil
-#        ⚖️ / 🔎 / everything else -> arbiter (narration)
+#        😇 or "Angel"                        -> angel
+#        😈 or "Devil"                        -> devil
+#        ✅ / "Verified" / "CONFORMANCE CHECK" -> verifier
+#        ⚖️ / 🔎 / everything else            -> arbiter (narration)
 #      A marker line starts a new segment; unmarked lines continue the current one.
 #   3. Each segment is piped to Piper with that speaker+language's model, and
 #      played in order so the conversation is voiced back in sequence.
@@ -45,13 +46,11 @@ if [ "${1:-}" = "--lang" ]; then FORCED_LANG="${2:-}"; shift 2 || true; fi
 INPUT="$(cat)"
 
 # --- 1. language ---
+# Extract the two-letter code from the first `<!-- speak:xx -->` tag. sed with a
+# capture group is portable POSIX (GNU + BSD/macOS); no PCRE lookahead needed.
 LANG_CODE="$FORCED_LANG"
 if [ -z "$LANG_CODE" ]; then
-  LANG_CODE="$(printf '%s' "$INPUT" | grep -oiE '<!--[[:space:]]*speak:[a-z]{2}[[:space:]]*-->' | head -n1 | grep -oiE '[a-z]{2}(?=[[:space:]]*-->)' || true)"
-  # portable fallback if the lookahead grep isn't supported:
-  if [ -z "$LANG_CODE" ]; then
-    LANG_CODE="$(printf '%s' "$INPUT" | sed -nE 's/.*<!--[[:space:]]*speak:([a-zA-Z]{2})[[:space:]]*-->.*/\1/p' | head -n1)"
-  fi
+  LANG_CODE="$(printf '%s' "$INPUT" | sed -nE 's/.*<!--[[:space:]]*speak:([a-zA-Z]{2})[[:space:]]*-->.*/\1/p' | head -n1)"
 fi
 LANG_CODE="$(printf '%s' "${LANG_CODE:-en}" | tr '[:upper:]' '[:lower:]')"
 case "$LANG_CODE" in en|de|zh|ja) ;; *) echo "speak.sh: unknown lang '$LANG_CODE', using en" >&2; LANG_CODE="en";; esac
@@ -61,12 +60,13 @@ model_for() { # $1 = speaker -> echoes model path from "<lang>_<speaker>"
   printf '%s' "${!var:-}"
 }
 
-speaker_of_line() { # classify a single line -> angel|devil|arbiter|""(blank)
+speaker_of_line() { # classify a single line -> angel|devil|verifier|arbiter|""(blank)
   local line="$1"
   [ -z "${line//[[:space:]]/}" ] && { printf ''; return; }
   case "$line" in
-    *"😇"*|"Angel"*|"CASE FOR"*)        printf 'angel' ;;
-    *"😈"*|"Devil"*|"CASE AGAINST"*)    printf 'devil' ;;
+    *"😇"*|"Angel"*|"CASE FOR"*)                    printf 'angel' ;;
+    *"😈"*|"Devil"*|"CASE AGAINST"*)                printf 'devil' ;;
+    *"✅"*|"Verified"*|"CONFORMANCE CHECK"*)         printf 'verifier' ;;
     *) printf 'arbiter' ;;
   esac
 }
@@ -89,7 +89,7 @@ flush() {
   local text
   text="$(printf '%s' "$buf" \
     | sed -E 's/<!--[[:space:]]*speak:[a-zA-Z]{2}[[:space:]]*-->//g' \
-    | sed -E 's/^[[:space:]]*(😇|😈|⚖️|🔎)[[:space:]]*//')"
+    | sed -E 's/^[[:space:]]*(😇|😈|⚖️|🔎|✅)[[:space:]]*//')"
   printf '%s' "$text" | "$PIPER_BIN" --model "$model" --output_file "$TMPWAV" 2>/dev/null
   PLAY "$TMPWAV"
   buf=""
