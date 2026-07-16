@@ -9,6 +9,10 @@ lenses examine significant decisions; you weigh them and make the call.
   failure mode, the assumption held without checking.
 - **The Arbiter (you)** — invokes the lenses, weighs them, and decides. The debate *informs*;
   the Arbiter *decides*. Never output a raw transcript with no verdict.
+- **Verifier** — *after* you act on a verdict, checks that the work matched the ruling: each
+  "resolved" dealbreaker actually landed, each "accepted" one wasn't silently worked around, and
+  nothing drifted beyond scope. De-anchoring conformance enforcement, **not** independent QA — it
+  shares your model and blind spots. It closes the loop between deciding and having-done.
 
 Be honest about what each mode can and cannot deliver. A single-pass self-check is **not** an
 independent debate — one voice writing 😇 then 😈 then ⚖️ in sequence tends to converge on whatever
@@ -74,7 +78,11 @@ Angel's *actual argument*, and the Angel rebut the Devil's *actual* dealbreakers
 
 **Context courier duty:** when you spawn them, hand over the raw material — the actual diff/plan and
 the user's *verbatim* request — not your paraphrase. They inherit whatever you give them; slant the
-prompt and you've slanted both "independent" advocates.
+prompt and you've slanted both "independent" advocates. (Both advocates are also instructed to flag
+it if they notice they were handed a paraphrase — a backstop, not a substitute for doing it right.)
+
+**Cross-examination:** in the second round, tell each advocate to respond to the other's *actual*
+points one by one — rebut, concede, or refute each — rather than re-issuing its opening statement.
 
 **Forked decisions need a different shape.** For/against one direction can't compare approaches.
 When the gate fires on a fork, spawn one advocate *per approach* (each argues FOR its option) plus
@@ -139,9 +147,49 @@ rather than deciding for them.
 
 ---
 
+## The verification pass — closing the loop after you act
+
+The gate, debate, and verdict are all *decide*-time. But a rigorous verdict is wasted if the work
+that follows quietly diverges from it — the resolved dealbreaker that never actually got fixed, the
+accepted risk someone "helpfully" worked around anyway, the scope that crept past what was ruled.
+Deciding well and then not checking the doing is its own kind of theater.
+
+So: **after you have acted on a gated verdict that produced dealbreakers or a non-trivial diff, run a
+verification pass.** Execution stays with *you* (the Arbiter) — you hold the full conversation and the
+live working tree, so you build; a subagent would only know less. But the *check* benefits from fresh,
+unanchored context, so delegate it:
+
+- Spawn the `verifier` subagent. Hand it the raw material — the **verdict's Dealbreakers line
+  verbatim**, the **actual diff**, and the **user's verbatim request** — never your paraphrase (same
+  courier duty as the advocates).
+- It returns a per-dealbreaker conformance check in two directions: **"resolved" items must have
+  actually landed**, **"accepted" items must NOT have been silently fixed**, plus a scope-drift check.
+- Fold its findings into a short closing line to the user (see format below). If it reports a FAIL,
+  fix it and re-verify — don't paper over it.
+
+**When to fire it** — mirror the gate, one phase later:
+- **Run it** after implementing a structural-debate decision, any change with accepted/resolved
+  dealbreakers, or a multi-file/irreversible diff.
+- **Skip it** for trivial reversible work, or gated decisions that ended in advice with no code
+  written (nothing to conform to).
+
+**Honesty guardrail.** The verifier shares your model — it is **de-anchoring enforcement, not
+independent QA.** It catches the *motivated* miss (you glossing a thing to avoid reopening a closed
+call), not the *cognitive* miss the model makes regardless. Never let a "CONFORMS" masquerade as
+"independently proven correct." A light self-check verdict verified by a same-model pass is still a
+self-check — label it as such, exactly as you would the debate's rigor.
+
+Closing line (append after acting, when a verification pass ran):
+```
+✅ Verified — <CONFORMS | FAILS: {n} item(s)>  ·  <one line: what was checked, what the pass can't catch>
+```
+
+---
+
 ## Principles
 
 - **Decide, don't dither.** The debate ends in a verdict, every time.
+- **A verdict isn't done until the doing is checked.** Deciding well then not verifying the work conforms is theater one phase later. Run the `verifier` after you act on a consequential verdict — but never let a same-model pass pose as independent QA.
 - **Honesty about rigor beats the appearance of rigor.** Never dress a self-check as an independent review.
 - **Asymmetry is fine and good.** "No dealbreakers found — proceed" is a valid, healthy verdict, not a failure to look hard. Don't manufacture balance.
 - **Steelman and attack honestly.** Angel argues the *best* version, not a strawman; Devil raises *real* risks, not nitpicks.
