@@ -23,7 +23,7 @@ as the Devil argues against it.
 | 😇 **Angel** | Steelman. The strongest *honest* case for the direction — upside, the simplest path that works, why it's sound. Never a strawman. |
 | 😈 **Devil** | Attack. What breaks, the hidden cost, the failure mode, the assumption held without checking. Reproduces failures with code when it can. |
 | ⚖️ **Arbiter** | The decider (the main Claude). Invokes the lenses, weighs them, and issues a verdict every time. Stays clinical — tone carries zero weight in the ruling. |
-| ✅ **Verifier** | The loop-closer. *After* the Arbiter acts, checks the work matched the verdict: each "resolved" dealbreaker landed, each "accepted" one wasn't silently worked around, nothing drifted out of scope. De-anchoring conformance — **not** independent QA. |
+| ✅ **Verifier** | The loop-closer. *After* the Arbiter acts, checks the work matched the verdict: each "resolved" dealbreaker landed, each "accepted" one wasn't silently worked around, nothing drifted out of scope. Runs **cross-model** by default (a different model than the Arbiter), so it's de-anchoring conformance *plus* **partial** independent QA — not full QA, but no longer sharing every blind spot. |
 
 ## How it works
 
@@ -36,16 +36,21 @@ as the Devil argues against it.
      stands in for rigor.
    - *Structural debate* (heavy/irreversible/forked) — spawns the real `angel` and `devil`
      subagents in parallel (independent context + tools), runs one cross-examination round, then
-     synthesizes. **Forked** decisions get a dedicated shape: one steelman per approach + one Devil
-     across all, and a verdict that *picks* the winner (and can graft a runner-up's best idea onto it).
+     synthesizes. The `devil` runs **cross-model** (a different model than the Arbiter), so the
+     debate isn't just Opus-vs-itself — the attacker doesn't share the proponent's blind spots.
+     **Forked** decisions get a dedicated shape: one steelman per approach + one Devil across all, and
+     a verdict that *picks* the winner (and can graft a runner-up's best idea onto it).
 3. **Every gated decision ends in an accountable verdict** — a rigor line (how much scrutiny this
    got), the two cases, and a verdict that disposes of each Devil dealbreaker *by name*.
 4. **The loop closes after the doing.** Once the Arbiter acts on a consequential verdict, it spawns
-   the `verifier` — a read-only, fresh-context pass that checks the work *conformed* to the ruling:
-   resolved dealbreakers actually landed, accepted ones weren't silently worked around, scope didn't
-   creep. It's de-anchoring enforcement (catches the Arbiter defending its own closed call), **not**
-   independent QA — it shares the model's blind spots and says so. Execution stays with the Arbiter,
-   which holds the full context and the live tree; only the *check* is delegated.
+   the `verifier` — a read-only, fresh-context, **cross-model** pass that checks the work *conformed*
+   to the ruling: resolved dealbreakers actually landed, accepted ones weren't silently worked around,
+   scope didn't creep. Because it runs on a different model than the Arbiter, it's de-anchoring
+   enforcement (catches the Arbiter defending its own closed call) **plus partial independent QA** (it
+   no longer shares every blind spot) — though still not *full* QA, and it says so. Execution stays
+   with the Arbiter, which holds the full context and the live tree; only the *check* is delegated.
+   *(This independence assumes the Arbiter runs on Opus and the checks on Sonnet — the shipped config.
+   Run a different Arbiter model? Flip `model:` in `devil.md`/`verifier.md` so they never match it.)*
 
 ### The four lenses
 Every review covers **correctness/risk · approach/design · scope discipline · assumptions** (including
@@ -83,5 +88,9 @@ earns it.
 This workflow is built to resist its own worst failure mode — *theater*: a decision dressed in the
 costume of scrutiny it never received. Hence the honest rigor labels, the mandatory dealbreaker
 accounting, the symmetric advocate formats (neither side is structurally pushed to over- or
-under-claim), and the reproduce-when-you-can grounding rule. The agents have been run against their
-own design to harden them.
+under-claim), the reproduce-when-you-can grounding rule, and — the sharpest cut against theater —
+**cross-model checks**: the `devil` and `verifier` run on a different model than the Arbiter, so
+"independent" review is independent in fact and not just in name. That independence has one honest
+precondition, stated everywhere it matters: it holds only while those agents' model differs from the
+Arbiter's, and the files say so rather than letting a same-model pass wear the costume. The agents
+have been run against their own design to harden them.

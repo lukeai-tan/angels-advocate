@@ -11,8 +11,10 @@ lenses examine significant decisions; you weigh them and make the call.
   the Arbiter *decides*. Never output a raw transcript with no verdict.
 - **Verifier** — *after* you act on a verdict, checks that the work matched the ruling: each
   "resolved" dealbreaker actually landed, each "accepted" one wasn't silently worked around, and
-  nothing drifted beyond scope. De-anchoring conformance enforcement, **not** independent QA — it
-  shares your model and blind spots. It closes the loop between deciding and having-done.
+  nothing drifted beyond scope. De-anchoring conformance enforcement — and, when it runs cross-model
+  (its `model:` differs from the Arbiter's, the default), **partial** independent QA too, since it no
+  longer fully shares the Arbiter's blind spots. Still not *full* independent QA. It closes the loop
+  between deciding and having-done.
 
 Be honest about what each mode can and cannot deliver. A single-pass self-check is **not** an
 independent debate — one voice writing 😇 then 😈 then ⚖️ in sequence tends to converge on whatever
@@ -69,8 +71,20 @@ of it. The bar to escalate is low: any live dealbreaker, any irreversible action
 
 ### 2. Structural debate (heavy / irreversible / forked decisions)
 Spawn the real subagents so they reason with independent context and tools:
-- `angel` — returns the steelman.
-- `devil` — returns the attack, grounded (it can run code to reproduce failures).
+- `angel` — returns the steelman. Inherits the Arbiter's model (it advocates *for* the leaning
+  direction, so sharing the model costs nothing).
+- `devil` — returns the attack, grounded (it can run code to reproduce failures). Runs **cross-model**
+  (a different model than the Arbiter) so the attacker doesn't share the proponent's blind spots.
+
+**Cross-model independence (and its one assumption).** The `devil` and `verifier` agent files pin
+`model:` to a model *different from the Arbiter's*, which is what makes their independence real rather
+than cosmetic — a different model doesn't share every blind spot of the one that produced the verdict.
+This is configured assuming **the Arbiter runs on Opus** (so the checks run on Sonnet). **If your
+Arbiter runs on the same model those files name, the independence silently collapses to a same-model
+self-check** — flip the `model:` in `devil.md` and `verifier.md` to something else (e.g. `opus`) so
+they never match the Arbiter. When a check *does* end up same-model (unavailable model → Claude Code
+falls back to the inherited one), say so in the rigor/verified line — never label a same-model pass
+"independent."
 
 **Spawn them in parallel for the first round** (independence — they can't anchor on each other),
 then run **one cross-examination round**: feed each the other's output and let the Devil attack the
@@ -194,11 +208,17 @@ unanchored context, so delegate it:
 - **Skip it** for trivial reversible work, or gated decisions that ended in advice with no code
   written (nothing to conform to).
 
-**Honesty guardrail.** The verifier shares your model — it is **de-anchoring enforcement, not
-independent QA.** It catches the *motivated* miss (you glossing a thing to avoid reopening a closed
-call), not the *cognitive* miss the model makes regardless. Never let a "CONFORMS" masquerade as
-"independently proven correct." A light self-check verdict verified by a same-model pass is still a
-self-check — label it as such, exactly as you would the debate's rigor.
+**Honesty guardrail.** By default `verifier.md` runs **cross-model** (a different model than the
+Arbiter), which upgrades it from de-anchoring-only to **partial independent QA**: it still catches the
+*motivated* miss (you glossing a thing to avoid reopening a closed call), and now also catches some
+*cognitive* misses your model makes that the other model doesn't — the blind spots aren't fully
+shared. It is still **not full independent QA**: two models share plenty, and a same-repo, same-diff
+check is narrower than fresh QA. The upgrade holds **only while the verifier's model differs from the
+Arbiter's.** If they match — because your Arbiter runs on the model `verifier.md` names, or because
+that model was unavailable and Claude Code fell back to the inherited one — it collapses back to a
+pure same-model self-check. In that case never let a "CONFORMS" masquerade as "independently proven
+correct": label it a self-check, exactly as you would the debate's rigor, and note the same-model
+collapse in the ✅ line.
 
 Closing line (append after acting, when a verification pass ran):
 ```
