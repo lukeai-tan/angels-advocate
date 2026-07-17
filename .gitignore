@@ -20,6 +20,9 @@ models/
 *.mp3
 *.tmp
 
+# --- Angel's Advocate decision journal (private per-machine log) ---
+.angel-advoc/
+
 # --- Secrets / local overrides (nothing here today, but cheap insurance) ---
 .env
 .env.*

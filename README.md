@@ -51,6 +51,10 @@ as the Devil argues against it.
    with the Arbiter, which holds the full context and the live tree; only the *check* is delegated.
    *(This independence assumes the Arbiter runs on Opus and the checks on Sonnet — the shipped config.
    Run a different Arbiter model? Flip `model:` in `devil.md`/`verifier.md` so they never match it.)*
+5. **The workflow remembers.** Each gated decision is appended to a decision journal
+   (`.angel-advoc/journal.jsonl`, gitignored, per-machine) — verdict, dealbreakers, and verifier
+   outcome — so patterns like recurring dealbreakers or gate under-firing become visible over time. A
+   `/journal` / `/gate-audit` reader to aggregate it is a planned follow-up.
 
 ### The four lenses
 Every review covers **correctness/risk · approach/design · scope discipline · assumptions** (including

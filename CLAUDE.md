@@ -227,6 +227,29 @@ Closing line (append after acting, when a verification pass ran):
 
 ---
 
+## The decision journal — give the workflow a memory
+
+Verdicts are otherwise ephemeral. After a **gated decision** concludes — verdict issued, and the
+verifier run if it was going to — append one line to the journal so a later reader (`/journal`,
+`/gate-audit`) can spot patterns: recurring dealbreakers, verdicts that failed verification, and the
+gate's real risk — decisions that should have fired review but didn't.
+
+```
+printf '%s' '{"gate":"<fork|structural|irreversible|assumption|wrong-problem|light|skip-noted>",
+  "rigor":"<light self-check|structural debate>","target":"<one line: what was decided>",
+  "verdict":"<one line: the ruling>","dealbreakers":[{"item":"...","disposition":"<resolved|accepted>","why":"..."}],
+  "verifier":"<CONFORMS|FAILS:{n}|n/a>"}' | tools/journal.sh
+```
+(`verifier: "n/a"` when the verdict was advisory with no code written. The script adds the timestamp.)
+
+- **Log every gated decision** — including a `skip` you noted a ⚠️ on, and advisory verdicts. Under-firing
+  is only measurable if the near-misses are recorded too.
+- **Don't log** trivial ungated work (the gate's "just act" cases) — that's noise.
+- **Honest caveat:** this is model-driven best-effort logging, not a guaranteed hook — it's only as
+  reliable as you remembering to call it here. The journal is `.angel-advoc/journal.jsonl` (gitignored).
+
+---
+
 ## Principles
 
 - **Decide, don't dither.** The debate ends in a verdict, every time.
