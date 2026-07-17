@@ -1,20 +1,45 @@
 #!/usr/bin/env bash
-# shush.sh — stop any in-flight speech started by speak.sh, immediately.
+# shush.sh — stop in-flight speech, and/or mute voicing entirely.
 #
 # The Stop hook fires speak.sh in the BACKGROUND (so the session isn't blocked),
 # which means a long verdict keeps playing after the turn ends and there's no
-# obvious way to interrupt it. Run this to cut it off:
+# obvious way to interrupt it.
 #
-#   ./shush.sh
-#   tools/shush.sh
+#   ./shush.sh              stop any audio playing RIGHT NOW (one-shot)
+#   ./shush.sh --mute       stop current audio AND disable all future voicing
+#   ./shush.sh --unmute     re-enable voicing (future verdicts speak again)
+#   ./shush.sh --status     report whether voicing is currently muted
 #
-# It kills, in order: the audio players (paplay/aplay), the piper renderer, and
-# any running speak.sh pipelines. It deliberately LEAVES the sherpa TTS daemon
+# The one-shot kill hits: the audio players (paplay/aplay), the piper renderer,
+# and any running speak.sh pipelines. It deliberately LEAVES the sherpa TTS daemon
 # (sherpa_ttsd.py) running — that's the warm model, killing it just makes the
 # next Japanese verdict slow to start again.
 #
-# Safe to run anytime; if nothing is playing it's a no-op.
+# --mute drops a sentinel file the Stop hook checks; --unmute removes it. The
+# sentinel lives in ~/.claude (per-machine), so muting never edits the shared,
+# committed hook config.
+#
+# Safe to run anytime; if nothing is playing the one-shot kill is a no-op.
 set -u
+
+MUTE_FLAG="${ANGEL_ADVOC_MUTE_FLAG:-$HOME/.claude/angel-advoc-muted}"
+
+case "${1:-}" in
+  --status)
+    if [ -f "$MUTE_FLAG" ]; then echo "shush: voicing is MUTED ($MUTE_FLAG)"; else echo "shush: voicing is ON"; fi
+    exit 0 ;;
+  --unmute)
+    rm -f "$MUTE_FLAG" && echo "shush: voicing re-enabled — verdicts will speak again."
+    exit 0 ;;
+  --mute)
+    mkdir -p "$(dirname "$MUTE_FLAG")"
+    : > "$MUTE_FLAG"
+    echo "shush: voicing MUTED — future verdicts stay silent (undo: shush.sh --unmute)."
+    # fall through to also stop anything playing right now
+    ;;
+  "" ) : ;;  # default: one-shot kill only
+  * ) echo "shush: unknown option '$1' (use --mute | --unmute | --status | no arg)" >&2; exit 2 ;;
+esac
 
 killed=0
 

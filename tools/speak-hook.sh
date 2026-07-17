@@ -15,6 +15,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SPEAK="$SCRIPT_DIR/speak.sh"
 PY="${PYTHON_BIN:-python3}"
 
+# Mute switch. If this sentinel file exists, voicing is disabled — the hook exits
+# quietly and speaks nothing. Toggle it with `shush.sh --mute` / `--unmute`. Kept
+# outside the repo (in ~/.claude) so muting is a per-machine choice, never a
+# committed change to the shared hook config.
+MUTE_FLAG="${ANGEL_ADVOC_MUTE_FLAG:-$HOME/.claude/angel-advoc-muted}"
+[ -f "$MUTE_FLAG" ] && exit 0
+
 # Hooks can run with a reduced PATH that omits piper. If it's not already
 # resolvable, point speak.sh at the known install via PIPER_BIN so it still works.
 if [ -z "${PIPER_BIN:-}" ] && ! command -v piper >/dev/null 2>&1; then
