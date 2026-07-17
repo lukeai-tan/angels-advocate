@@ -76,6 +76,11 @@ the response in that language and tags it so the audio router picks the matching
 WSL via [Piper](https://github.com/rhasspy/piper). See [tools/README_tts.md](tools/README_tts.md) to
 set it up — build and test `speak.sh` standalone before wiring it to a Stop hook.
 
+**Muting.** The Stop hook plays audio in the background, so a long verdict keeps talking after the
+turn ends. To cut it off, run `tools/shush.sh` (or `/shush`, or type `! tools/shush.sh` in the prompt
+for an instant shell-side stop). It kills the players and renderer but leaves the warm TTS daemon
+running.
+
 ## Using it
 
 Point Claude Code at this folder (the `CLAUDE.md` and `.claude/agents/` are picked up automatically).
