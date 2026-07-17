@@ -83,6 +83,27 @@ The `angel` and `devil` subagents register on startup — if you edit them mid-s
 reload. Then just work: the gate stays quiet on small stuff and convenes the debate when a decision
 earns it.
 
+### Summon it anywhere — the `/angel-advoc` command
+
+The always-on gate only works *inside this repo*, where `CLAUDE.md` loads. To force the two-sided
+debate on demand in **any** project, install it at user scope:
+
+```
+~/.claude/commands/angel-advoc.md      the /angel-advoc command (self-contained orchestration)
+~/.claude/agents/{angel,devil,verifier}.md   the subagents it spawns
+```
+
+Then `/angel-advoc <what to scrutinize>` (or blank for the current git diff) runs the real structural
+debate — parallel `angel` + `devil`, cross-examination, an arbitrated verdict — in whatever project
+you're in. New commands/agents load at session start, so restart after installing.
+
+**Keeping the global copies in sync.** The `~/.claude/agents/` files are **symlinks** back to this
+repo's `.claude/agents/`, so improving an agent here updates the global command automatically — one
+source of truth. The tradeoff: **don't move, rename, or delete this repo**, or the symlinks dangle
+and `/angel-advoc` breaks elsewhere. (Prefer robustness over auto-sync? Use plain copies instead and
+re-copy when you edit an agent.) The cross-model independence assumes an **Opus** main model; on a
+Sonnet main model, flip `model:` in `devil.md`/`verifier.md` to `opus`.
+
 ## Design note
 
 This workflow is built to resist its own worst failure mode — *theater*: a decision dressed in the
