@@ -16,7 +16,10 @@ as the Devil argues against it.
 
 ---
 
-## The three roles
+## The roles
+
+The four core roles carry the debate; two optional support agents run in parallel to feed it evidence
+and check correctness.
 
 | Role | Job |
 |---|---|
@@ -24,6 +27,8 @@ as the Devil argues against it.
 | 😈 **Devil** | Attack. What breaks, the hidden cost, the failure mode, the assumption held without checking. Reproduces failures with code when it can. |
 | ⚖️ **Arbiter** | The decider (the main Claude). Invokes the lenses, weighs them, and issues a verdict every time. Stays clinical — tone carries zero weight in the ruling. |
 | ✅ **Verifier** | The loop-closer. *After* the Arbiter acts, checks the work matched the verdict: each "resolved" dealbreaker landed, each "accepted" one wasn't silently worked around, nothing drifted out of scope. Runs **cross-model** by default (a different model than the Arbiter), so it's de-anchoring conformance *plus* **partial** independent QA — not full QA, but no longer sharing every blind spot. |
+| 🔬 **Researcher** *(optional)* | Read-only evidence-gatherer. Runs **in parallel** with the advocates on evidence-heavy debates — reproductions, measurements, blast radius, external docs — and hands its `FINDINGS` to both so they argue from shared ground truth. Never takes a side or rules. |
+| 🧪 **Test-Writer** *(optional)* | Runs **in parallel** with the verifier after a verdict is acted on, answering *does the code actually work?* (vs. the verifier's *did it conform?*). Adaptive: durable tests when there's a real surface, an honest "nothing to test" for prose/config. |
 
 ## How it works
 
@@ -112,6 +117,17 @@ source of truth. The tradeoff: **don't move, rename, or delete this repo**, or t
 and `/angel-advoc` breaks elsewhere. (Prefer robustness over auto-sync? Use plain copies instead and
 re-copy when you edit an agent.) The cross-model independence assumes an **Opus** main model; on a
 Sonnet main model, flip `model:` in `devil.md`/`verifier.md` to `opus`.
+
+### Fan out across a whole diff — the `angel-advoc-sweep` workflow
+
+For a change that spans many files, `.claude/workflows/angel-advoc-sweep.js` runs **one debate per
+changed file in parallel** — each with its own Angel + cross-model Devil + per-file Arbiter verdict —
+then synthesizes a single cross-file ruling. It scopes out trivia (lockfiles, generated output,
+whitespace) first, and pipelines so a fast file's verdict isn't blocked by a slow file's debate.
+Invoke it via the Workflow tool (optionally pass a base ref like `main` to diff against; default is the
+current uncommitted diff). This is deterministic orchestration, which is why it's a workflow script
+rather than a prompt-driven command — the fan-out, concurrency cap, and structured collection are
+scripted, not left to the model to juggle.
 
 ## Design note
 
