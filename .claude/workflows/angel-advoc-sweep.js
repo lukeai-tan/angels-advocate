@@ -13,9 +13,16 @@ export const meta = {
 // args (optional): a base ref to diff against (e.g. "main", "HEAD~3"). Default: the
 // current uncommitted diff (staged + unstaged) vs HEAD.
 phase('Scope')
+// Shell-single-quote a value so an untrusted ref or diff filename can't break out
+// of the git command we hand to an agent. Defense-in-depth: the agent runs these via
+// its Bash tool, so an unescaped `'` in a maliciously-named file (from a reviewed PR)
+// would otherwise be a command-injection vector. POSIX-safe: close-quote, escaped
+// quote, reopen-quote for each embedded `'`.
+const shq = (s) => `'${String(s).replace(/'/g, "'\\''")}'`
+
 const base = (typeof args === 'string' && args.trim()) ? args.trim() : ''
 const diffCmd = base
-  ? `git diff --name-only ${base}...HEAD`
+  ? `git diff --name-only ${shq(base)}...HEAD`
   : `git diff --name-only HEAD`
 
 const scope = await agent(
@@ -85,8 +92,8 @@ const verdicts = await pipeline(
   // Stage 1: run Angel + Devil concurrently on this one file's diff.
   async (file) => {
     const diffOne = base
-      ? `git --no-pager diff ${base}...HEAD -- '${file.path}'`
-      : `git --no-pager diff HEAD -- '${file.path}'`
+      ? `git --no-pager diff ${shq(base)}...HEAD -- ${shq(file.path)}`
+      : `git --no-pager diff HEAD -- ${shq(file.path)}`
     const brief =
       `You are reviewing ONE file: \`${file.path}\` (changed because: ${file.why}).\n` +
       `Get its actual diff by running: \`${diffOne}\` (also check \`--staged\`).\n` +
@@ -103,10 +110,29 @@ const verdicts = await pipeline(
   // Stage 2: this file's Arbiter weighs the two into a per-file verdict.
   async (r) => {
     if (!r) return null
+    // Fail loud, don't paper over a half-debate. A missing advocate (agent skipped or
+    // died mid-run) used to be rendered as '(no case returned)' with the verdict formed
+    // anyway — a one-sided debate wearing a two-sided costume, the exact false-confidence
+    // this workflow exists to prevent. Instead: refuse to arbitrate and surface the gap as
+    // an unresolved dealbreaker so the cross-file synthesis can't mistake it for a clean review.
+    const missing = [!r.angelCase && 'angel', !r.devilCase && 'devil'].filter(Boolean)
+    if (missing.length) {
+      return {
+        file: r.file.path,
+        verdict: `⚠️ DEGRADED RIGOR — no verdict formed: ${missing.join(' and ')} `
+          + `advocate returned nothing (agent skipped or died mid-run). This file was NOT `
+          + `reviewed two-sided; re-run the sweep before trusting any ruling on it.`,
+        dealbreakers: [{
+          item: `${missing.join(' and ')} advocate produced no case for ${r.file.path}`,
+          severity: 'dealbreaker',
+          disposition: 'unresolved — debate incomplete, re-run required',
+        }],
+      }
+    }
     return agent(
       `You are the Arbiter for the file \`${r.file.path}\`. Two advocates reviewed its diff.\n\n` +
-      `ANGEL (case for):\n${r.angelCase || '(no case returned)'}\n\n` +
-      `DEVIL (case against):\n${r.devilCase || '(no case returned)'}\n\n` +
+      `ANGEL (case for):\n${r.angelCase}\n\n` +
+      `DEVIL (case against):\n${r.devilCase}\n\n` +
       `Weigh them and issue a verdict for THIS file. Dispose of each Devil dealbreaker by name ` +
       `(resolved-by / accepting-because). Stay clinical; tone carries no weight.`,
       { label: `arbiter:${r.file.path}`, phase: 'Debate', schema: FINDINGS }
