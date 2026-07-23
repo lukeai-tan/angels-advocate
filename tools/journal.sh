@@ -61,5 +61,12 @@ PY
 )"
 
 mkdir -p "$(dirname "$JOURNAL")"
+# Concurrency safety: this is a single O_APPEND write (`>>`), which POSIX guarantees
+# is atomic up to PIPE_BUF (4096 bytes on Linux) on a local filesystem — so parallel
+# appenders can't interleave a normal entry (~600 bytes observed). This invariant
+# holds only while (a) the append stays a SINGLE write of one line ≤4096 bytes, and
+# (b) the journal is on a local fs (NFS weakens O_APPEND atomicity). Only the Arbiter
+# writes here, sequentially, so no lock is needed; if that changes or entries can
+# exceed 4096 bytes, add an flock around this line. Regression-tested in tools/tests/.
 printf '%s\n' "$LINE" >> "$JOURNAL"
 echo "journal.sh: logged to $JOURNAL" >&2
