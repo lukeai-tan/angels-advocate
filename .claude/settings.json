@@ -1,4 +1,8 @@
 {
+  "env": {
+    "//": "Allows the investigator roles (researcher, test-writer) to spawn their own helper subagents for parallel legwork. Project-scoped on purpose (not ~/.claude) so the blast radius stays in this repo. Depth 2 = Arbiter -> investigator -> helper. Only agents with `Agent` in their tools: line can actually spawn; devil/verifier/angel deliberately omit it. See CLAUDE.md 'Nested spawning'.",
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2"
+  },
   "hooks": {
     "Stop": [
       {

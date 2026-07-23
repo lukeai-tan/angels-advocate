@@ -111,6 +111,30 @@ When the gate fires on a fork, spawn one advocate *per approach* (each argues FO
 one Devil across all of them, then the Arbiter picks. Don't collapse a comparison into defending
 the option you already leaned toward.
 
+**Nested spawning — investigators may fan out; judges may not.** The two *investigator* roles,
+`researcher` and `test-writer`, carry the `Agent` tool: they can spawn their own helper subagents for
+**independent legwork discovered mid-task** — a researcher splitting into parallel reproductions/greps/
+fetches, a test-writer running one suite per surface of a multi-surface diff. This is the dynamic
+"delegate a subtask if the work warrants it" path, and it's cheap for these two because they already
+return *distilled* summaries (FINDINGS / TEST REPORT) and inherit the Arbiter's model, so nothing about
+their independence is riding on visibility. It requires `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` in
+`.claude/settings.json` (set to `2`, project-scoped on purpose so the blast radius stays in this repo).
+
+The `devil`, `verifier`, and `angel` roles deliberately **do not** get `Agent`. For the two cross-model
+roles this is load-bearing: a helper spawned by the Sonnet `devil`/`verifier` would inherit the *main
+conversation's* model (the Arbiter's Opus) — silently collapsing the cross-model independence those
+roles exist to provide, in a layer the Arbiter can't see inline to catch. `angel` has nothing to fan
+out. When a *judgment* role genuinely needs fan-out, express it as an Arbiter-orchestrated **workflow**
+(the `angel-advoc-sweep.js` pattern) where every spawn is visible in `/workflows`, model-labeled, and
+journalable — never as hidden nesting.
+
+**Two honest caveats on nesting.** (1) A nested helper's transcript returns only to its *parent* role,
+not to the Arbiter — only the role's distilled output reaches the debate. So a material finding a helper
+surfaces that the parent drops is lost to the debate; both agent files instruct the role to fold every
+finding (for AND against) into its summary. (2) The loss is *inline visibility*, not auditability:
+nested subagents still write `agent-{id}.jsonl` to the session's `subagents/` dir, so their model and
+work stay post-hoc auditable there — the same trail `/gate-audit`-style inspection already reads.
+
 ---
 
 ## The four lenses
