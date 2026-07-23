@@ -34,6 +34,7 @@ lifecycle to feed it evidence, check correctness, and keep the workflow honest.
 | 🛡️ **Red-Teamer** *(optional)* | A security-specialized Devil, **cross-model**. Attacks only the security surface — injection, secrets, authz, path/shell, deserialization, SSRF, supply-chain, unsafe defaults — and reproduces the exploit where it safely can. Returns `SECURITY FINDINGS`. |
 | 📊 **Profiler** *(optional)* | A Researcher specialized to perf/cost. Measures latency, memory, scaling, and token/dollar cost with methodology instead of guessing. Can fan out parallel trials. Returns a `PROFILE`; never rules. |
 | ✍️ **Scribe** *(optional)* | Runs at verification-time. Syncs docs (README, CLAUDE.md, comments) to a landed change — **docs only, never logic** — and returns a `DOC SYNC REPORT`. Honest "no change" when nothing drifted. |
+| ✂️ **TL;DR** *(optional)* | Utility summarizer. Distills a long debate or verdict, *fidelity over brevity* — preserves dealbreakers, caveats, and dissent, never upgrades confidence, and flags if it was handed a paraphrase. |
 
 ## How it works
 
@@ -63,8 +64,9 @@ lifecycle to feed it evidence, check correctness, and keep the workflow honest.
    Run a different Arbiter model? Flip `model:` in `devil.md`/`verifier.md` so they never match it.)*
 5. **The workflow remembers.** Each gated decision is appended to a decision journal
    (`.angel-advoc/journal.jsonl`, gitignored, per-machine) — verdict, dealbreakers, and verifier
-   outcome — so patterns like recurring dealbreakers or gate under-firing become visible over time. A
-   `/journal` / `/gate-audit` reader to aggregate it is a planned follow-up.
+   outcome — so patterns like recurring dealbreakers or gate under-firing become visible over time.
+   Read it back with **`/journal`** (recent decisions) or **`/gate-audit`** (aggregated patterns —
+   recurring dealbreakers, verdicts that failed verification, gate under-firing).
 
 ### The four lenses
 Every review covers **correctness/risk · approach/design · scope discipline · assumptions** (including
@@ -73,10 +75,23 @@ Every review covers **correctness/risk · approach/design · scope discipline ·
 ## Layout
 
 ```
-CLAUDE.md                     The Arbiter — gate, modes, four lenses, output format
-.claude/agents/angel.md       The steelman subagent
-.claude/agents/devil.md       The attacker subagent
-.claude/agents/verifier.md    The post-implementation conformance subagent
+CLAUDE.md                       The Arbiter — gate, modes, four lenses, output format
+.claude/agents/
+  angel.md  devil.md            The two core advocates
+  verifier.md                   Post-implementation conformance check (cross-model)
+  researcher.md  test-writer.md Optional investigators (may fan out helpers)
+  historian.md  interpreter.md  Optional: memory, ambiguity-resolution (cross-model)
+  red-teamer.md  profiler.md    Optional: security attack (cross-model), perf/cost
+  scribe.md  tldr.md            Optional: doc sync, summarization
+.claude/commands/
+  journal.md  gate-audit.md     Read/aggregate the decision journal
+.claude/workflows/
+  angel-advoc-sweep.js          One debate per changed file, in parallel
+tools/
+  journal.sh                    Append a gated decision to the journal
+  journal-report.sh             Reader behind /journal and /gate-audit
+  debate-view.sh / *.py         Watch subagents think/act/answer, live in the terminal
+  tests/                        Regression suites (bash + python3, no framework)
 ```
 
 ## Using it
@@ -117,6 +132,16 @@ Invoke it via the Workflow tool (optionally pass a base ref like `main` to diff 
 current uncommitted diff). This is deterministic orchestration, which is why it's a workflow script
 rather than a prompt-driven command — the fan-out, concurrency cap, and structured collection are
 scripted, not left to the model to juggle.
+
+### Watch the debate live — `debate-view`
+
+During a structural debate the advocates run as subagents, out of sight. `tools/debate-view.sh` opens
+a live terminal view of what they're doing — each agent's role, model, and its thinking, tool calls,
+and output as they stream in. It reads the session's subagent transcripts read-only and tails them as
+they grow; run it in a second terminal while a debate is underway. `tools/debate-view.sh --once` prints
+a one-shot dump instead of the live view (and is what runs automatically when there's no TTY). Agent
+"active/done" status is an mtime heuristic — Claude Code emits no explicit finished signal — and the
+view labels it as such.
 
 ## Design note
 
