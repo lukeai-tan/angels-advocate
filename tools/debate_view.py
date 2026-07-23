@@ -9,6 +9,9 @@ a live status, and a stream of that agent's thinking + tool calls + output.
   tools/debate-view.sh <session-id>    a specific session under this project
   tools/debate-view.sh --once          one-shot dump (replay / pipe to less); also the
                                        automatic mode when stdout is not a TTY
+  tools/debate-view.sh --check-independence   verify cross-model roles ran on a model !=
+                                       the Arbiter's, from ACTUAL runtime models (exit 1 on
+                                       collapse, 2 if unverified) — the ground-truth check
 
 All parsing lives in debate_lib (unit-tested). This file is the thin curses shell:
 roster pane on top, streaming detail for the focused agent below.
@@ -60,6 +63,22 @@ def run_once(subagents_dir, label):
     print(f"Angel's Advocate — session {label}  ({len(agents)} agent(s))\n")
     print(dl.render_dump(agents))
     return 0
+
+
+def run_check_independence(subagents_dir, label, arbiter_model):
+    """Ground-truth, post-hoc check: did every cross-model role actually run on a model
+    != the Arbiter's? Reads the actual runtime model from each transcript. Exit codes:
+    0 held / nothing-to-check, 1 collapse, 2 unverified (fail-closed)."""
+    agents = dl.load_agents_full(subagents_dir)
+    if not agents:
+        print(f"debate-view: no agent transcripts yet in session {label}.")
+        return 2
+    if not arbiter_model:
+        arbiter_model = os.environ.get("ANTHROPIC_MODEL") or None
+    result = dl.check_independence(agents, arbiter_model=arbiter_model)
+    print(f"Angel's Advocate — session {label}\n")
+    print(dl.render_independence(result))
+    return {"ok": 0, "nothing-to-check": 0, "collapse": 1, "unverified": 2}[result["status"]]
 
 
 # --- live curses UI ----------------------------------------------------------
@@ -206,6 +225,12 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Live terminal viewer for Angel's Advocate agents.")
     ap.add_argument("session", nargs="?", help="session id (default: most recent active)")
     ap.add_argument("--once", action="store_true", help="one-shot dump instead of live view")
+    ap.add_argument("--check-independence", action="store_true",
+                    help="verify cross-model roles ran on a model != the Arbiter's (ground "
+                         "truth, from actual runtime models); exit 1 on collapse, 2 if unverified")
+    ap.add_argument("--arbiter-model",
+                    help="the Arbiter's actual model, for --check-independence (default: infer "
+                         "from an inherit-role agent, else $ANTHROPIC_MODEL)")
     ap.add_argument("--project", help="project dir override (default: derived from cwd)")
     ap.add_argument("--subagents", help="point directly at a subagents/ dir (bypasses discovery)")
     ap.add_argument("--home", help="home dir override (testing)")
@@ -215,6 +240,9 @@ def main(argv=None):
     if not subagents_dir:
         print(f"debate-view: {label}", file=sys.stderr)
         return 2
+
+    if args.check_independence:
+        return run_check_independence(subagents_dir, label, args.arbiter_model)
 
     if args.once or not sys.stdout.isatty():
         return run_once(subagents_dir, label)

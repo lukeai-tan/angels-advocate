@@ -124,6 +124,21 @@ and `interpreter.md` to something else (e.g. `opus`) so they never match the Arb
 falls back to the inherited one), say so in the rigor/verified line — never label a same-model pass
 "independent."
 
+**Don't trust this by eye — the two checks that verify it.** The assumption above used to be
+enforced only by a doc caveat nobody executes. Two complementary tools now make it checkable, and
+they catch *different* halves of the collapse:
+- **Before a structural debate — `tools/preflight.sh <arbiter-model>`** (static config guard). Reads
+  the model *declared* in each cross-model agent file, resolves aliases, and warns loudly (exit 1) if
+  any would run on the Arbiter's model. Catches the misconfig *before* you spend a debate on it — but
+  it reads the *declared* model, so it is **blind to the availability-fallback collapse**. Fail-closed:
+  exits non-zero if the Arbiter's model can't be determined rather than reporting a false pass.
+- **After the debate — `tools/debate-view.sh --check-independence`** (ground truth). Reads the
+  *actual runtime model* each cross-model role ran on from the transcripts, so it catches **both**
+  static misconfig **and** the fallback case the preflight can't see. Exit 1 on collapse, 2 if
+  unverified. This is the authoritative check; run it after any structural debate and let it — not an
+  eyeballed roster — decide whether the ✅/🔎 line may say "independent." The preflight is an early
+  warning, **never** a substitute for this post-hoc check.
+
 **Spawn them in parallel for the first round** (independence — they can't anchor on each other),
 then run **one cross-examination round**: feed each the other's output and let the Devil attack the
 Angel's *actual argument*, and the Angel rebut the Devil's *actual* dealbreakers. Then synthesize.

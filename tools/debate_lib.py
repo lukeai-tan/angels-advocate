@@ -275,6 +275,105 @@ def render_dump(agents):
     return "\n".join(lines)
 
 
+# --- cross-model independence check (ground truth, post-hoc) ------------------
+#
+# The workflow's load-bearing honesty claim is that these roles run on a DIFFERENT
+# model than the Arbiter, so their scrutiny isn't a same-model self-check wearing a
+# costume. This checks the ACTUAL runtime model each of them ran on (read from the
+# transcript, not the agent file's declared `model:`), so it catches BOTH a static
+# misconfig (agent file set to the Arbiter's model) AND the availability-fallback
+# collapse (declared sonnet, but sonnet was unavailable so it fell back to the
+# Arbiter's model) — the latter is invisible to any file-reading preflight.
+CROSS_MODEL_ROLES = ("devil", "verifier", "red-teamer", "interpreter")
+
+# Roles that inherit the Arbiter's model — used to *infer* the Arbiter's model from the
+# session's own transcripts when it isn't supplied explicitly (an angel/researcher/… ran
+# on exactly the Arbiter's model, by definition).
+INHERIT_ROLES = ("angel", "historian", "profiler", "scribe", "researcher", "test-writer")
+
+
+def infer_arbiter_model(agents):
+    """Best-effort: the Arbiter's model, taken from any inherit-role agent present in the
+    session (those run on the Arbiter's model). Returns (model, source_role) or (None, None)."""
+    for a in agents:
+        if a.get("role") in INHERIT_ROLES and a.get("model"):
+            return a["model"], a["role"]
+    return None, None
+
+
+def check_independence(agents, arbiter_model=None):
+    """Verify every cross-model role in this session ran on a model != the Arbiter's.
+
+    `agents`: list of dicts with at least {role, model} (e.g. from load_agents_full).
+    `arbiter_model`: the Arbiter's ACTUAL model. If None, inferred from an inherit-role
+    agent in the session; if it still can't be determined, the result is 'unverified'
+    (fail-closed) rather than a false pass.
+
+    Returns a dict:
+      status        : 'ok' | 'collapse' | 'unverified' | 'nothing-to-check'
+      arbiter_model : the model compared against (or None)
+      arbiter_source: 'supplied' | 'inferred from <role>' | None
+      findings      : [{role, model, collapsed: bool}]  (one per cross-model agent seen)
+      checked       : number of cross-model agents seen
+    """
+    if arbiter_model:
+        source = "supplied"
+    else:
+        arbiter_model, src_role = infer_arbiter_model(agents)
+        source = f"inferred from {src_role}" if arbiter_model else None
+
+    findings = []
+    for a in agents:
+        if a.get("role") in CROSS_MODEL_ROLES and a.get("model"):
+            findings.append({"role": a["role"], "model": a["model"], "collapsed": False})
+
+    if not findings:
+        return {"status": "nothing-to-check", "arbiter_model": arbiter_model,
+                "arbiter_source": source, "findings": [], "checked": 0}
+    if not arbiter_model:
+        return {"status": "unverified", "arbiter_model": None,
+                "arbiter_source": None, "findings": findings, "checked": len(findings)}
+
+    collapsed_any = False
+    for f in findings:
+        if f["model"] == arbiter_model:
+            f["collapsed"] = True
+            collapsed_any = True
+    return {"status": "collapse" if collapsed_any else "ok",
+            "arbiter_model": arbiter_model, "arbiter_source": source,
+            "findings": findings, "checked": len(findings)}
+
+
+def render_independence(result):
+    """Human-readable report for check_independence(). Returns a string."""
+    st = result["status"]
+    am = result["arbiter_model"] or "?"
+    src = result["arbiter_source"]
+    lines = []
+    if st == "nothing-to-check":
+        lines.append("🔎 Independence — no cross-model agents (devil/verifier/red-teamer/"
+                     "interpreter) ran in this session; nothing to check.")
+        return "\n".join(lines)
+    if st == "unverified":
+        lines.append("⚠️  Independence UNVERIFIED — could not determine the Arbiter's model "
+                     "(no inherit-role agent in session; pass --arbiter-model).")
+        lines.append("   Cross-model agents seen (actual runtime model):")
+        for f in result["findings"]:
+            lines.append(f"     {role_emoji(f['role'])} {f['role']}  [{f['model']}]")
+        return "\n".join(lines)
+    head = "✅ Independence HELD" if st == "ok" else "❌ Independence COLLAPSED"
+    lines.append(f"{head} — Arbiter ran on [{am}] ({src}); checked actual runtime models.")
+    for f in result["findings"]:
+        mark = "COLLAPSE — same model as Arbiter" if f["collapsed"] else "ok — differs"
+        glyph = "❌" if f["collapsed"] else "✔"
+        lines.append(f"   {glyph} {role_emoji(f['role'])} {f['role']:<12} [{f['model']}]  {mark}")
+    if st == "collapse":
+        lines.append("   → A 'cross-model' check ran on the Arbiter's own model: it is a "
+                     "same-model self-check, not independent QA. Label the rigor honestly, or "
+                     "flip the role's model: so it differs from the Arbiter.")
+    return "\n".join(lines)
+
+
 def load_agents_full(subagents_dir):
     """Read every agent transcript fully (offset 0) and return a list of
     {path, role, model, events, mtime} — the one-shot / replay view."""

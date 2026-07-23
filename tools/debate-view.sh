@@ -10,6 +10,8 @@
 #   tools/debate-view.sh                 # live view of the most-recently-active session
 #   tools/debate-view.sh <session-id>    # a specific session under this project
 #   tools/debate-view.sh --once          # one-shot dump (replay / pipe to less)
+#   tools/debate-view.sh --check-independence   # verify cross-model roles ran on a model !=
+#                                        # the Arbiter's, from actual runtime models (exit 1 collapse)
 #
 # Reads only local transcript files under ~/.claude/projects/<project>/<session>/subagents/.
 # Nothing is sent anywhere. python3 stdlib only (curses ships with it on Linux/macOS).
