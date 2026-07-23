@@ -85,6 +85,7 @@ CLAUDE.md                       The Arbiter — gate, modes, four lenses, output
   scribe.md  tldr.md            Optional: doc sync, summarization
 .claude/commands/
   journal.md  gate-audit.md     Read/aggregate the decision journal
+  debate-view.md                Inline snapshot of the live debate subagents
 .claude/workflows/
   angel-advoc-sweep.js          One debate per changed file, in parallel
 tools/
@@ -142,6 +143,10 @@ they grow; run it in a second terminal while a debate is underway. `tools/debate
 a one-shot dump instead of the live view (and is what runs automatically when there's no TTY). Agent
 "active/done" status is an mtime heuristic — Claude Code emits no explicit finished signal — and the
 view labels it as such.
+
+For a quick inline peek from *inside* a Claude Code session, `/debate-view` runs the one-shot dump and
+relays it — handy when you don't have a second terminal open. (The live, updating view still needs a
+real terminal, since a slash command can't host the curses UI.)
 
 ## Design note
 
