@@ -77,23 +77,7 @@ CLAUDE.md                     The Arbiter — gate, modes, four lenses, output f
 .claude/agents/angel.md       The steelman subagent
 .claude/agents/devil.md       The attacker subagent
 .claude/agents/verifier.md    The post-implementation conformance subagent
-tools/speak.sh                Optional: speak responses aloud, one voice per role
-tools/voices.conf             Maps language + speaker -> a Piper voice model
-tools/README_tts.md           TTS setup (WSL + Piper)
 ```
-
-## Spoken voices (optional)
-
-Responses can be voiced aloud, with a **distinct voice per speaker** (Angel / Devil / Arbiter) and
-support for **English, German, Chinese, and Japanese**. When you ask for a language, Claude writes
-the response in that language and tags it so the audio router picks the matching voice trio. Runs in
-WSL via [Piper](https://github.com/rhasspy/piper). See [tools/README_tts.md](tools/README_tts.md) to
-set it up — build and test `speak.sh` standalone before wiring it to a Stop hook.
-
-**Muting.** The Stop hook plays audio in the background, so a long verdict keeps talking after the
-turn ends. To cut it off, run `tools/shush.sh` (or `/shush`, or type `! tools/shush.sh` in the prompt
-for an instant shell-side stop). It kills the players and renderer but leaves the warm TTS daemon
-running.
 
 ## Using it
 

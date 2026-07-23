@@ -35,7 +35,7 @@ command -v "$PY" >/dev/null 2>&1 || { echo "journal.sh: python3 not found (set P
 # Read the entry from stdin into an env var. We pass it to python via the
 # environment, NOT a pipe: `python3 - <<'PY'` already binds stdin to the heredoc
 # (that's where the program comes from), so a pipe into it would be discarded and
-# sys.stdin would be empty. speak-hook.sh uses the same env-var pattern.
+# sys.stdin would be empty.
 JOURNAL_INPUT="$(cat)"
 export JOURNAL_INPUT
 

@@ -8,18 +8,6 @@ Desktop.ini
 .vscode/
 *.code-workspace
 
-# --- TTS: Piper voice models & generated audio ---
-# Voice models are large binary blobs downloaded per-machine — never commit them.
-# (voices.conf points at ~/piper/models by default, outside the repo, but guard
-#  against anyone dropping models in-tree.)
-models/
-*.onnx
-*.onnx.json
-# Generated / temp speech output
-*.wav
-*.mp3
-*.tmp
-
 # --- Angel's Advocate decision journal (private per-machine log) ---
 .angel-advoc/
 

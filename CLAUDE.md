@@ -179,28 +179,13 @@ restatement.)
 
 ---
 
-## Language & spoken voice
+## Language
 
-Responses can be voiced aloud by `tools/speak.sh`, which routes each speaker (Angel / Devil /
-Arbiter) to its own text-to-speech voice. Default language is **English**. Supported: English `en`,
-German `de`, Chinese `zh`, Japanese `ja`.
-
-When the user requests a language (per request — e.g. "respond in German", "答日文", or by writing
-to you in that language and asking you to reply in kind):
-
-1. **Write the response content in that language** — the Angel/Devil/Verdict prose, not just a
-   translation appended. Text and voice must agree; a German voice reading English text mispronounces it.
-2. **Emit a machine-readable tag as the very first line** so `speak.sh` picks the right voice trio:
-   ```
-   <!-- speak:de -->
-   ```
-   Use `en` / `de` / `zh` / `ja`. Emit the tag whenever a spoken language is in effect (including
-   `en` when you want it explicit). The tag is an HTML comment — invisible in rendered markdown,
-   read by the script.
-3. **Keep the speaker markers (😇 😈 ⚖️ 🔎) exactly as-is** regardless of language — the script splits
-   on them to assign voices. Only the words after the marker change language.
-
-If no language is requested, write normally in English and you need not emit the tag.
+Default language is **English**. When the user requests another language (per request — e.g.
+"respond in German", "答日文", or by writing to you in that language and asking you to reply in kind),
+write the response *content* in that language — the Angel/Devil/Verdict prose, not just a translation
+appended. Keep the speaker markers (😇 😈 ⚖️ 🔎 ✅) exactly as-is regardless of language; only the
+words after the marker change.
 
 ---
 
@@ -210,7 +195,7 @@ If no language is requested, write normally in English and you need not emit the
 🔎 **Rigor:** <skip | light self-check | structural debate> · **Gate:** <which trigger fired, or why skipped>
 
 😇 **Angel** — <strongest case for the direction>
-<continue on as many lines as the case needs; unmarked lines stay in Angel's voice>
+<continue on as many lines as the case needs>
 
 😈 **Devil** — <sharpest attack>
 <one DEALBREAKER per line so each stands out; keep marked>
@@ -222,15 +207,10 @@ If no language is requested, write normally in English and you need not emit the
 - <one bullet per dealbreaker; if there were none, write a single line: "none raised">
 ```
 
-**Formatting rules (readability without breaking voice).**
-- Each speaker's block **must start its first line with the bare marker glyph** (`🔎 😇 😈 ⚖️ ✅`) —
-  not `**😇`. `tools/speak.sh` strips a *leading* glyph to route the voice; hide it behind markdown
-  and the glyph gets read aloud. Bold the label *after* the glyph (`😇 **Angel**`), never before it.
-- **Continuation lines carry no marker** — an unmarked line is folded into the current speaker's
-  segment, so a block can span many lines and still voice in one voice. Never start a continuation
-  line with another speaker's glyph or with the bare words `Angel`/`Devil`/`Verified` (they'd be
-  misrouted). Markdown (`**bold**`, `` `code` ``, `- bullets`) is stripped before speaking, so use it freely.
-- Put a **blank line between speaker blocks** — it reads better and stays in the preceding segment.
+**Formatting rules (readability).**
+- Lead each speaker's block with its marker glyph (`🔎 😇 😈 ⚖️ ✅`), then bold the label (`😇 **Angel**`).
+- Let a block span as many lines as it needs; put a **blank line between speaker blocks** so they're easy to scan.
+- Render dealbreakers as a bulleted list, one per line, each disposed of by name.
 
 The **Rigor line** keeps the format honest: it tells the user exactly how much scrutiny this got, so
 polish never stands in for independence. The **Dealbreakers block** is mandatory — every dealbreaker
@@ -259,7 +239,7 @@ verdict that *picks* rather than merely proceeds.
 **Runners-up** — <the best idea from a rejected option worth grafting onto the winner, if any>
 ```
 
-Same formatting rules as above: bare glyph leads each block, continuation lines carry no marker.
+Same formatting rules as above: glyph leads each block, blank line between blocks.
 The **Runners-up line** stops a fork from throwing away a good idea just because its option lost —
 the winning approach can often absorb the best part of a rejected one.
 
