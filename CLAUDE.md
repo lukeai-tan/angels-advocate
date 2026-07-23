@@ -207,16 +207,33 @@ If no language is requested, write normally in English and you need not emit the
 ## Arbiter output format (for gated decisions)
 
 ```
-🔎 Rigor: <skip | light self-check | structural debate>  ·  Gate: <which trigger fired, or why skipped>
-😇 Angel — <strongest case for the direction>
-😈 Devil — <sharpest attack, dealbreakers marked>
-⚖️ Verdict — <the decision and reasoning>
-   Dealbreakers: <each Devil DEALBREAKER named + "resolved by ___" OR "accepting because ___">
-                 (none → say "none raised")
+🔎 **Rigor:** <skip | light self-check | structural debate> · **Gate:** <which trigger fired, or why skipped>
+
+😇 **Angel** — <strongest case for the direction>
+<continue on as many lines as the case needs; unmarked lines stay in Angel's voice>
+
+😈 **Devil** — <sharpest attack>
+<one DEALBREAKER per line so each stands out; keep marked>
+
+⚖️ **Verdict** — <the decision and reasoning>
+
+**Dealbreakers**
+- <name> → **resolved by** <how>   *(or)*   **accepting because** <why>
+- <one bullet per dealbreaker; if there were none, write a single line: "none raised">
 ```
 
+**Formatting rules (readability without breaking voice).**
+- Each speaker's block **must start its first line with the bare marker glyph** (`🔎 😇 😈 ⚖️ ✅`) —
+  not `**😇`. `tools/speak.sh` strips a *leading* glyph to route the voice; hide it behind markdown
+  and the glyph gets read aloud. Bold the label *after* the glyph (`😇 **Angel**`), never before it.
+- **Continuation lines carry no marker** — an unmarked line is folded into the current speaker's
+  segment, so a block can span many lines and still voice in one voice. Never start a continuation
+  line with another speaker's glyph or with the bare words `Angel`/`Devil`/`Verified` (they'd be
+  misrouted). Markdown (`**bold**`, `` `code` ``, `- bullets`) is stripped before speaking, so use it freely.
+- Put a **blank line between speaker blocks** — it reads better and stays in the preceding segment.
+
 The **Rigor line** keeps the format honest: it tells the user exactly how much scrutiny this got, so
-polish never stands in for independence. The **Dealbreakers line** is mandatory — every dealbreaker
+polish never stands in for independence. The **Dealbreakers block** is mandatory — every dealbreaker
 the Devil raised must be disposed of *by name*; a verdict may not silently drop one.
 
 ### Forked-decision format (comparing 2+ approaches)
@@ -227,16 +244,22 @@ shape instead: one steelman line per option, the Devil's cross-cutting attack ra
 verdict that *picks* rather than merely proceeds.
 
 ```
-🔎 Rigor: <light self-check | structural debate>  ·  Gate: fork — <the competing approaches, named>
-😇 Angel · Option A — <strongest case FOR A>
-😇 Angel · Option B — <strongest case FOR B>   (one line per option under comparison)
-😈 Devil — <attack across all options; which objection sinks which; ranked least-bad → worst>
-⚖️ Verdict — <the option chosen + why it beats the others, not just why it's adequate>
-   Dealbreakers: <each Devil DEALBREAKER named + "resolved by ___" OR "accepting because ___">
-                 (none → say "none raised")
-   Runners-up: <the best idea from a rejected option worth grafting onto the winner, if any>
+🔎 **Rigor:** <light self-check | structural debate> · **Gate:** fork — <the competing approaches, named>
+
+😇 **Angel · Option A** — <strongest case FOR A>
+😇 **Angel · Option B** — <strongest case FOR B>   (one block per option under comparison)
+
+😈 **Devil** — <attack across all options; which objection sinks which; ranked least-bad → worst>
+
+⚖️ **Verdict** — <the option chosen + why it beats the others, not just why it's adequate>
+
+**Dealbreakers**
+- <name> → **resolved by** <how>   *(or)*   **accepting because** <why>   (none → "none raised")
+
+**Runners-up** — <the best idea from a rejected option worth grafting onto the winner, if any>
 ```
 
+Same formatting rules as above: bare glyph leads each block, continuation lines carry no marker.
 The **Runners-up line** stops a fork from throwing away a good idea just because its option lost —
 the winning approach can often absorb the best part of a rejected one.
 

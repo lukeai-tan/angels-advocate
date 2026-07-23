@@ -8,12 +8,15 @@
 #
 # How it works:
 #   1. Language: from a `<!-- speak:xx -->` tag in the text, or --lang, else en.
-#   2. Splitting: every line is attributed to a speaker by its leading marker:
+#   2. Splitting: a line that carries a marker starts a new segment:
 #        😇 or "Angel"                        -> angel
 #        😈 or "Devil"                        -> devil
 #        ✅ / "Verified" / "CONFORMANCE CHECK" -> verifier
-#        ⚖️ / 🔎 / everything else            -> arbiter (narration)
-#      A marker line starts a new segment; unmarked lines continue the current one.
+#        ⚖️ / 🔎 / "Verdict" / "Rigor"         -> arbiter (narration)
+#      An unmarked line (blank or prose) CONTINUES the current speaker's segment,
+#      so a speaker's block can span many lines — the readable multi-line verdict
+#      format stays correctly voiced. Markdown (**bold**, `code`, - bullets) is
+#      stripped before speaking. Use `--print-segments` to see the split without audio.
 #   3. Each segment is piped to Piper with that speaker+language's model, and
 #      played in order so the conversation is voiced back in sequence.
 #
@@ -30,24 +33,37 @@ SHERPA_PY="${SHERPA_PY:-python3}"
 SHERPA_SOCK="${SHERPA_SOCK:-${XDG_RUNTIME_DIR:-/tmp}/sherpa_ttsd.sock}"
 SHERPA_DAEMON="$SCRIPT_DIR/sherpa_ttsd.py"
 
-# --- pick a player available on this system (WSLg ships pulseaudio -> paplay) ---
-if command -v paplay >/dev/null 2>&1; then
-  PLAY() { paplay "$1"; }
-elif command -v aplay >/dev/null 2>&1; then
-  PLAY() { aplay -q "$1"; }
-else
-  echo "speak.sh: no audio player found (need paplay or aplay)." >&2
-  exit 1
-fi
-
-command -v "$PIPER_BIN" >/dev/null 2>&1 || { echo "speak.sh: piper not found (set PIPER_BIN)." >&2; exit 1; }
-[ -f "$CONF" ] || { echo "speak.sh: config not found: $CONF" >&2; exit 1; }
-# shellcheck disable=SC1090
-source "$CONF"
-
-# --- args ---
+# --- args (parsed first: --print-segments must skip the audio/piper deps) ---
 FORCED_LANG=""
-if [ "${1:-}" = "--lang" ]; then FORCED_LANG="${2:-}"; shift 2 || true; fi
+DRY_RUN=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --lang)           FORCED_LANG="${2:-}"; shift 2 || true ;;
+    # classify each line and print "speaker: text" to stdout without touching
+    # piper/audio. Lets the segmentation be tested headlessly (see tests/).
+    --print-segments) DRY_RUN=1; shift ;;
+    *)                shift ;;
+  esac
+done
+
+# The audio player, piper, and voices.conf are only needed when we actually
+# speak — a --print-segments dry run needs none of them, so it runs anywhere.
+if [ "$DRY_RUN" = 0 ]; then
+  # --- pick a player available on this system (WSLg ships pulseaudio -> paplay) ---
+  if command -v paplay >/dev/null 2>&1; then
+    PLAY() { paplay "$1"; }
+  elif command -v aplay >/dev/null 2>&1; then
+    PLAY() { aplay -q "$1"; }
+  else
+    echo "speak.sh: no audio player found (need paplay or aplay)." >&2
+    exit 1
+  fi
+
+  command -v "$PIPER_BIN" >/dev/null 2>&1 || { echo "speak.sh: piper not found (set PIPER_BIN)." >&2; exit 1; }
+  [ -f "$CONF" ] || { echo "speak.sh: config not found: $CONF" >&2; exit 1; }
+  # shellcheck disable=SC1090
+  source "$CONF"
+fi
 
 INPUT="$(cat)"
 
@@ -66,14 +82,20 @@ model_for() { # $1 = speaker -> echoes model path from "<lang>_<speaker>"
   printf '%s' "${!var:-}"
 }
 
-speaker_of_line() { # classify a single line -> angel|devil|verifier|arbiter|""(blank)
+speaker_of_line() { # classify a line -> angel|devil|verifier|arbiter, or "" = continue
+  # "" means "no marker here" — a blank OR an unmarked prose line — and the caller
+  # folds it into the CURRENT speaker's segment. That's what lets a speaker's block
+  # span many lines (the readable multi-line verdict format) without each
+  # continuation line being misattributed to the arbiter. Only a line carrying a
+  # marker (glyph or leading keyword) starts a new segment.
   local line="$1"
   [ -z "${line//[[:space:]]/}" ] && { printf ''; return; }
   case "$line" in
     *"😇"*|"Angel"*|"CASE FOR"*)                    printf 'angel' ;;
     *"😈"*|"Devil"*|"CASE AGAINST"*)                printf 'devil' ;;
     *"✅"*|"Verified"*|"CONFORMANCE CHECK"*)         printf 'verifier' ;;
-    *) printf 'arbiter' ;;
+    *"⚖️"*|*"🔎"*|"Verdict"*|"Rigor"*)              printf 'arbiter' ;;
+    *) printf '' ;;   # unmarked prose -> continue the current speaker
   esac
 }
 
@@ -140,19 +162,27 @@ PY
 TMPWAV="$(mktemp --suffix=.wav)"
 trap 'rm -f "$TMPWAV"' EXIT
 
-cur_speaker=""
+cur_speaker="arbiter"   # leading prose before any marker voices as narration
 buf=""
 
 flush() {
   [ -z "${buf//[[:space:]]/}" ] && { buf=""; return; }
-  # strip the speak tag and leading marker glyphs before speaking
+  # strip the speak tag, leading marker glyphs, and markdown before speaking, so a
+  # nicely-formatted verdict (bold labels, bullet dealbreakers) is read as clean
+  # prose rather than "asterisk asterisk Angel".
   local text
   text="$(printf '%s' "$buf" \
     | sed -E 's/<!--[[:space:]]*speak:[a-zA-Z]{2}[[:space:]]*-->//g' \
-    | sed -E 's/^[[:space:]]*(😇|😈|⚖️|🔎|✅)[[:space:]]*//')"
+    | sed -E 's/^[[:space:]]*(😇|😈|⚖️|🔎|✅)[[:space:]]*//' \
+    | sed -E 's/\*\*//g; s/`//g; s/^[[:space:]]*([-*+>]|#{1,6})[[:space:]]+//')"
   # nothing left to say once the tag/markers are stripped (e.g. a lone tag line):
   # piper would emit an empty WAV that the player can't open, so skip it
   [ -z "${text//[[:space:]]/}" ] && { buf=""; return; }
+  # dry run: report the classification without rendering (headless-testable seam)
+  if [ "$DRY_RUN" = 1 ]; then
+    printf '%s: %s\n' "$cur_speaker" "$(printf '%s' "$text" | tr '\n' ' ')"
+    buf=""; return
+  fi
   local model; model="$(model_for "$cur_speaker")"
   if [ -z "$model" ]; then
     echo "speak.sh: no voice for ${LANG_CODE}_${cur_speaker} (skipping segment)" >&2
@@ -179,7 +209,7 @@ flush() {
 
 while IFS= read -r line || [ -n "$line" ]; do
   who="$(speaker_of_line "$line")"
-  [ -z "$who" ] && { buf+="$line"$'\n'; continue; }   # blank line: keep in current segment
+  [ -z "$who" ] && { buf+="$line"$'\n'; continue; }   # blank/unmarked: continue current segment
   if [ -n "$cur_speaker" ] && [ "$who" != "$cur_speaker" ]; then
     flush
   fi
