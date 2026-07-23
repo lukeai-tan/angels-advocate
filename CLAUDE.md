@@ -82,13 +82,45 @@ Spawn the real subagents so they reason with independent context and tools:
   (does the failure reproduce? is it actually slow? what's the blast radius?); skip it for debates
   that are purely about judgment or taste. It never takes a side or rules.
 
-**Cross-model independence (and its one assumption).** The `devil` and `verifier` agent files pin
-`model:` to a model *different from the Arbiter's*, which is what makes their independence real rather
-than cosmetic — a different model doesn't share every blind spot of the one that produced the verdict.
-This is configured assuming **the Arbiter runs on Opus** (so the checks run on Sonnet). **If your
-Arbiter runs on the same model those files name, the independence silently collapses to a same-model
-self-check** — flip the `model:` in `devil.md` and `verifier.md` to something else (e.g. `opus`) so
-they never match the Arbiter. When a check *does* end up same-model (unavailable model → Claude Code
+**Specialized support agents (optional — fire only when the decision's shape calls for them).** Beyond
+the core advocates, five specialized roles slot into specific points in the lifecycle. Each is *optional*
+and returns a structured report with an honest "nothing here" escape hatch — spawn one only when its
+trigger actually fires, never as reflexive ceremony.
+
+- `historian` *(decision-time, before the debate)* — read-only; reads the decision journal
+  (`.angel-advoc/journal.jsonl`) and git history and surfaces `PRECEDENT`: similar past decisions,
+  recurring dealbreakers, and verdicts that later failed verification. Gives the workflow an active
+  memory. Spawn when a decision resembles past work; skip on genuinely novel ground. Inherits the model.
+- `interpreter` *(on the **wrong-problem** gate, before building)* — cross-model, read-only; when the
+  request is ambiguous, returns 2–4 `INTERPRETATIONS` of what the user might mean and the one clarifying
+  question that collapses the fork. Stops the workflow building the wrong thing correctly. It never
+  picks — it hands the fork to the Arbiter/user. Cross-model to de-anchor from the reading you latched onto.
+- `red-teamer` *(debate-time, alongside the Devil)* — cross-model; a security-specialized Devil that
+  attacks only the security surface (injection, secrets, authz, path/shell, deserialization, SSRF,
+  supply-chain, unsafe defaults) and reproduces the exploit where it safely can. Spawn when the change
+  shells out, handles input/secrets/auth, adds deps, or touches the network; skip for prose/config.
+- `profiler` *(debate-time, alongside the Researcher)* — a Researcher specialized to the perf/cost axis;
+  measures latency, memory, scaling, and token/dollar cost with methodology instead of asserting "might
+  be slow." Can fan out parallel trials (has `Agent`). Spawn when the verdict turns on "is this actually
+  fast/cheap/scalable enough?"; skip when there's no meaningful perf surface. Inherits the model.
+- `scribe` *(verification-time, alongside the Verifier/Test-Writer)* — syncs documentation to a landed
+  change (README, CLAUDE.md sections, comments), **docs only, never logic**, and returns a `DOC SYNC
+  REPORT` of every file/section touched. Spawn after a change with a documented surface; skip for changes
+  with nothing user-facing. Inherits the model; has Edit/Write scoped to docs (the verifier's scope-drift
+  check covers it, same precedent as `test-writer`).
+
+The two cross-model roles (`interpreter`, `red-teamer`) follow the same independence rule and the same
+one assumption as `devil`/`verifier` below — and, like all cross-model roles, they deliberately do
+**not** carry the `Agent` tool (a nested helper would inherit the Arbiter's model and collapse the
+independence). `historian`, `profiler`, and `scribe` inherit the Arbiter's model.
+
+**Cross-model independence (and its one assumption).** The `devil`, `verifier`, `red-teamer`, and
+`interpreter` agent files pin `model:` to a model *different from the Arbiter's*, which is what makes
+their independence real rather than cosmetic — a different model doesn't share every blind spot of the
+one that produced the verdict. This is configured assuming **the Arbiter runs on Opus** (so the checks
+run on Sonnet). **If your Arbiter runs on the same model those files name, the independence silently
+collapses to a same-model self-check** — flip the `model:` in `devil.md`, `verifier.md`, `red-teamer.md`,
+and `interpreter.md` to something else (e.g. `opus`) so they never match the Arbiter. When a check *does* end up same-model (unavailable model → Claude Code
 falls back to the inherited one), say so in the rigor/verified line — never label a same-model pass
 "independent."
 

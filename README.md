@@ -18,8 +18,8 @@ as the Devil argues against it.
 
 ## The roles
 
-The four core roles carry the debate; two optional support agents run in parallel to feed it evidence
-and check correctness.
+The four core roles carry the debate; a set of optional support agents run at specific points in the
+lifecycle to feed it evidence, check correctness, and keep the workflow honest.
 
 | Role | Job |
 |---|---|
@@ -29,6 +29,11 @@ and check correctness.
 | ✅ **Verifier** | The loop-closer. *After* the Arbiter acts, checks the work matched the verdict: each "resolved" dealbreaker landed, each "accepted" one wasn't silently worked around, nothing drifted out of scope. Runs **cross-model** by default (a different model than the Arbiter), so it's de-anchoring conformance *plus* **partial** independent QA — not full QA, but no longer sharing every blind spot. |
 | 🔬 **Researcher** *(optional)* | Read-only evidence-gatherer. Runs **in parallel** with the advocates on evidence-heavy debates — reproductions, measurements, blast radius, external docs — and hands its `FINDINGS` to both so they argue from shared ground truth. Never takes a side or rules. |
 | 🧪 **Test-Writer** *(optional)* | Runs **in parallel** with the verifier after a verdict is acted on, answering *does the code actually work?* (vs. the verifier's *did it conform?*). Adaptive: durable tests when there's a real surface, an honest "nothing to test" for prose/config. |
+| 🏛️ **Historian** *(optional)* | Read-only. *Before* a debate, mines the decision journal + git history for `PRECEDENT` — similar past calls, recurring dealbreakers, verdicts that later failed. Gives the workflow an active memory. Never takes a side. |
+| 🧭 **Interpreter** *(optional)* | Read-only, **cross-model**. Fires on the *wrong-problem* gate: when a request is ambiguous, returns 2–4 `INTERPRETATIONS` and the one question that resolves them — so the workflow doesn't build the wrong thing correctly. Hands the fork over; never picks. |
+| 🛡️ **Red-Teamer** *(optional)* | A security-specialized Devil, **cross-model**. Attacks only the security surface — injection, secrets, authz, path/shell, deserialization, SSRF, supply-chain, unsafe defaults — and reproduces the exploit where it safely can. Returns `SECURITY FINDINGS`. |
+| 📊 **Profiler** *(optional)* | A Researcher specialized to perf/cost. Measures latency, memory, scaling, and token/dollar cost with methodology instead of guessing. Can fan out parallel trials. Returns a `PROFILE`; never rules. |
+| ✍️ **Scribe** *(optional)* | Runs at verification-time. Syncs docs (README, CLAUDE.md, comments) to a landed change — **docs only, never logic** — and returns a `DOC SYNC REPORT`. Honest "no change" when nothing drifted. |
 
 ## How it works
 
