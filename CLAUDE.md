@@ -210,6 +210,15 @@ unanchored context, so delegate it:
 - Fold its findings into a short closing line to the user (see format below). If it reports a FAIL,
   fix it and re-verify — don't paper over it.
 
+**Correctness, in parallel — the `test-writer` (optional).** The verifier checks *did the work conform
+to the verdict*; it does **not** check *does the code actually work*. When the change has a real
+testable surface (pure logic, parsers, handlers, data transforms — not prose, config, or I/O-only
+glue), spawn the `test-writer` **alongside** the verifier. It writes and runs tests that exercise the
+change, adaptively: durable tests in the project's existing convention when there's infra to build on,
+a minimal bootstrap when there isn't, and an honest "nothing to test" when the change has no assertable
+surface. Fold its `OVERALL` into the closing line next to the verifier's result. Skip it whenever the
+diff is prose/docs/config — most of what a review produces here has nothing to assert.
+
 **When to fire it** — mirror the gate, one phase later:
 - **Run it** after implementing a structural-debate decision, any change with accepted/resolved
   dealbreakers, or a multi-file/irreversible diff.
@@ -231,6 +240,10 @@ collapse in the ✅ line.
 Closing line (append after acting, when a verification pass ran):
 ```
 ✅ Verified — <CONFORMS | FAILS: {n} item(s)>  ·  <one line: what was checked, what the pass can't catch>
+```
+If a `test-writer` also ran, add its result to the same line:
+```
+✅ Verified — <CONFORMS | FAILS: {n}>  ·  🧪 Tests — <PASSES: {n} | FAILS: {n} | NO TESTS: nothing to assert>  ·  <one line>
 ```
 
 ---
