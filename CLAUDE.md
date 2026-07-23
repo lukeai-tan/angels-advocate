@@ -75,6 +75,12 @@ Spawn the real subagents so they reason with independent context and tools:
   direction, so sharing the model costs nothing).
 - `devil` — returns the attack, grounded (it can run code to reproduce failures). Runs **cross-model**
   (a different model than the Arbiter) so the attacker doesn't share the proponent's blind spots.
+- `researcher` *(optional, evidence-heavy debates)* — read-only; gathers the facts the debate turns on
+  (reproductions, measurements, blast radius, external docs) **in parallel** with the advocates, and
+  its `FINDINGS` are handed to *both* before cross-examination so they argue from shared ground truth
+  instead of each re-deriving it. Spawn it when the verdict hinges on facts worth fetching once
+  (does the failure reproduce? is it actually slow? what's the blast radius?); skip it for debates
+  that are purely about judgment or taste. It never takes a side or rules.
 
 **Cross-model independence (and its one assumption).** The `devil` and `verifier` agent files pin
 `model:` to a model *different from the Arbiter's*, which is what makes their independence real rather
@@ -89,6 +95,8 @@ falls back to the inherited one), say so in the rigor/verified line — never la
 **Spawn them in parallel for the first round** (independence — they can't anchor on each other),
 then run **one cross-examination round**: feed each the other's output and let the Devil attack the
 Angel's *actual argument*, and the Angel rebut the Devil's *actual* dealbreakers. Then synthesize.
+If you spawned a `researcher`, it goes in this same first parallel round; when it returns, hand its
+`FINDINGS` to both advocates as they enter cross-examination, so both argue from the same evidence.
 
 **Context courier duty:** when you spawn them, hand over the raw material — the actual diff/plan and
 the user's *verbatim* request — not your paraphrase. They inherit whatever you give them; slant the
