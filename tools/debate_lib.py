@@ -26,6 +26,7 @@ Transcript shape (verified against real Claude Code v2.1.x transcripts):
 """
 from __future__ import annotations
 
+import datetime
 import glob
 import json
 import os
@@ -414,7 +415,9 @@ def render_dump(agents):
     lines = []
     for a in agents:
         role = a.get("role")
-        lines.append(f"{role_emoji(role)} {role or '(unknown)'}  ({a.get('model') or '?'})".lstrip())
+        u = a.get("usage")
+        tok = f"  ·  {fmt_tokens(usage_total(u))} tok (out {fmt_tokens(u.get('output', 0))})" if u else ""
+        lines.append(f"{role_emoji(role)} {role or '(unknown)'}  ({a.get('model') or '?'}){tok}".lstrip())
         for e in a.get("events", []):
             k = e.get("kind")
             if k == "thinking":
@@ -561,9 +564,143 @@ def render_independence(result):
     return "\n".join(lines)
 
 
+# --- token usage ------------------------------------------------------------
+#
+# Both main-session transcripts (<project>/<id>.jsonl) and subagent transcripts carry a
+# `message.usage` object on assistant lines. These functions normalize and sum it so the
+# viewer, a cross-session report, and the journal can all report token cost from one core.
+USAGE_FIELDS = ("input", "output", "cache_read", "cache_create")
+
+
+def blank_usage():
+    return {k: 0 for k in USAGE_FIELDS}
+
+
+def _norm_usage(u):
+    """Map a raw message.usage dict to our normalized field names."""
+    u = u or {}
+    return {
+        "input": u.get("input_tokens", 0) or 0,
+        "output": u.get("output_tokens", 0) or 0,
+        "cache_read": u.get("cache_read_input_tokens", 0) or 0,
+        "cache_create": u.get("cache_creation_input_tokens", 0) or 0,
+    }
+
+
+def add_usage(a, b):
+    return {k: (a.get(k, 0) + b.get(k, 0)) for k in USAGE_FIELDS}
+
+
+def usage_total(u):
+    return sum(u.get(k, 0) for k in USAGE_FIELDS)
+
+
+def usage_from_file(path, since=None):
+    """Sum message.usage across one transcript. If `since` (an ISO-8601 UTC timestamp string,
+    e.g. '2026-07-24T10:00:00Z') is given, only lines with timestamp >= since are counted
+    (lexicographic compare — valid for same-format Z-suffixed timestamps). Returns a
+    normalized usage dict; a missing/unreadable file yields zeros."""
+    tot = blank_usage()
+    try:
+        with open(path, "rb") as fh:
+            for raw in fh:
+                try:
+                    o = json.loads(raw)
+                except Exception:
+                    continue
+                if since:
+                    ts = o.get("timestamp", "")
+                    if ts and ts < since:
+                        continue
+                u = (o.get("message") or {}).get("usage")
+                if u:
+                    tot = add_usage(tot, _norm_usage(u))
+    except OSError:
+        pass
+    return tot
+
+
+def usage_from_files(paths, since=None):
+    tot = blank_usage()
+    for p in paths:
+        tot = add_usage(tot, usage_from_file(p, since))
+    return tot
+
+
+def fmt_tokens(n):
+    """Compact human token count: 950, 1.2k, 3.4M."""
+    n = int(n or 0)
+    if n < 1000:
+        return str(n)
+    if n < 1_000_000:
+        return f"{n / 1000:.1f}k"
+    return f"{n / 1_000_000:.1f}M"
+
+
+def session_transcripts(pdir):
+    """Map every session under a project dir to its transcripts:
+    {session_id: {"main": <path or None>, "subagents": [paths]}}. The main transcript is
+    <pdir>/<id>.jsonl; subagents live under <pdir>/<id>/subagents/."""
+    sessions = {}
+    for f in glob.glob(os.path.join(pdir, "*.jsonl")):
+        sid = os.path.splitext(os.path.basename(f))[0]
+        sessions.setdefault(sid, {"main": None, "subagents": []})["main"] = f
+    for sub in glob.glob(os.path.join(pdir, "*", "subagents")):
+        sid = os.path.basename(os.path.dirname(sub))
+        sessions.setdefault(sid, {"main": None, "subagents": []})["subagents"] = agent_files(sub)
+    return sessions
+
+
+# --- debate clustering -------------------------------------------------------
+#
+# A session's subagents/ dir accumulates every agent for the whole session lifetime, so a
+# long session shows dozens of agents from many separate debates. Agents within one debate
+# spawn seconds apart; debates are minutes-to-hours apart. Splitting on a start-time gap
+# recovers the individual debates so the viewer can show just the current one.
+DEBATE_GAP_SECONDS = 300   # a gap larger than this between agent starts begins a new debate
+
+
+def _ts_epoch(ts):
+    """ISO-8601 timestamp string -> epoch seconds, or None if unparseable."""
+    if not ts:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+
+def agent_start(a):
+    """Best-effort start time (epoch) of an agent: its first event's timestamp, else its
+    file mtime. Used to order and cluster agents into debates."""
+    for e in a.get("events") or []:
+        t = _ts_epoch(e.get("ts"))
+        if t is not None:
+            return t
+    return a.get("mtime") or 0.0
+
+
+def cluster_debates(agents, gap_seconds=DEBATE_GAP_SECONDS):
+    """Group agents into debate clusters by start-time gaps. Returns a list of clusters (each a
+    list of agents) in chronological order; a gap > gap_seconds between consecutive starts opens
+    a new cluster. Agents within a cluster keep their given order."""
+    ordered = sorted(agents, key=agent_start)
+    clusters, cur, prev = [], [], None
+    for a in ordered:
+        s = agent_start(a)
+        if prev is not None and (s - prev) > gap_seconds:
+            clusters.append(cur)
+            cur = []
+        cur.append(a)
+        prev = s
+    if cur:
+        clusters.append(cur)
+    return clusters
+
+
 def load_agents_full(subagents_dir):
     """Read every agent transcript fully (offset 0) and return a list of
-    {path, role, model, events, mtime} — the one-shot / replay view."""
+    {path, role, model, events, mtime, usage} — the one-shot / replay view."""
     agents = []
     for path in agent_files(subagents_dir):
         role, model = file_role(path)
@@ -573,7 +710,8 @@ def load_agents_full(subagents_dir):
         except OSError:
             mtime = 0.0
         agents.append(
-            {"path": path, "role": role, "model": model, "events": events, "mtime": mtime}
+            {"path": path, "role": role, "model": model, "events": events,
+             "mtime": mtime, "usage": usage_from_file(path)}
         )
     # order by first activity (file name is stable; sort by mtime of first event/file)
     agents.sort(key=lambda a: a["path"])

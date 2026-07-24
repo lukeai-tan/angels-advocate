@@ -264,6 +264,65 @@ assert styled[0][-1] == ('keep','b'), styled  # style survives wrapping
 "
 }
 
+# ---------------------------------------------------------------------------
+# (11) token usage: per-file sum, --since filter, aggregate, fmt, session map
+# ---------------------------------------------------------------------------
+t_tokens() {
+	local f="$WORKDIR/agent-usage.jsonl"
+	cat >"$f" <<'JSONL'
+{"attributionAgent":"devil","timestamp":"2026-07-24T07:00:00Z","type":"assistant","message":{"model":"m","usage":{"input_tokens":10,"output_tokens":100,"cache_read_input_tokens":1000,"cache_creation_input_tokens":5},"content":[{"type":"text","text":"a"}]}}
+{"agentId":"x","timestamp":"2026-07-24T07:00:01Z","type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"r"}]}}
+{"attributionAgent":"devil","timestamp":"2026-07-24T08:00:00Z","type":"assistant","message":{"model":"m","usage":{"input_tokens":20,"output_tokens":200,"cache_read_input_tokens":2000,"cache_creation_input_tokens":7},"content":[{"type":"text","text":"b"}]}}
+JSONL
+	pyt "usage_from_file sums usage; add/total; --since filters by timestamp" "
+import debate_lib as dl
+u = dl.usage_from_file('$f')
+assert u == {'input':30,'output':300,'cache_read':3000,'cache_create':12}, u
+assert dl.usage_total(u) == 3342, dl.usage_total(u)
+# --since drops the 07:00 line, keeps the 08:00 one
+u2 = dl.usage_from_file('$f', since='2026-07-24T07:30:00Z')
+assert u2 == {'input':20,'output':200,'cache_read':2000,'cache_create':7}, u2
+assert dl.usage_from_files(['$f','$f'])['output'] == 600
+"
+	pyt "cluster_debates splits agents into debates by start-time gap" "
+import debate_lib as dl
+def A(sec): return {'events':[{'ts': f'2026-07-24T00:{sec//60:02d}:{sec%60:02d}Z'}], 'mtime':0}
+# three bursts: t=0,10s | t=+7min | t=+7min again (gaps > 300s split them)
+agents=[A(0),A(10),A(20), A(600),A(605), A(1200)]
+cl=dl.cluster_debates(agents, gap_seconds=300)
+assert [len(c) for c in cl]==[3,2,1], [len(c) for c in cl]
+# newest cluster is last; agent_start orders within
+assert dl.agent_start(cl[0][0]) < dl.agent_start(cl[2][0])
+# tighter gap keeps them together
+assert len(dl.cluster_debates(agents, gap_seconds=100000))==1
+"
+	pyt "fmt_tokens: compact human counts" "
+import debate_lib as dl
+assert dl.fmt_tokens(0)=='0' and dl.fmt_tokens(950)=='950'
+assert dl.fmt_tokens(1500)=='1.5k' and dl.fmt_tokens(2_000_000)=='2.0M'
+"
+	# session discovery + token_report end to end over a fake project dir
+	local proj="$WORKDIR/proj/-x-y"; mkdir -p "$proj/S1/subagents"
+	cp "$f" "$proj/S1.jsonl"                # main transcript
+	cp "$f" "$proj/S1/subagents/agent-a.jsonl"
+	pyt "session_transcripts groups main + subagents by session id" "
+import debate_lib as dl
+s = dl.session_transcripts('$proj')
+assert 'S1' in s, s
+assert s['S1']['main'].endswith('S1.jsonl')
+assert len(s['S1']['subagents']) == 1, s['S1']
+"
+	local out
+	out="$("$PY" "$TOOLS_DIR/token_report.py" --project "$proj" --json 2>&1)"
+	if "$PY" -c "
+import json,sys
+o=json.loads('''$out''')
+# S1 = main(300 out) + subagent(300 out) = 600 output
+assert o['total']['output']==600, o
+assert o['total_tokens']==2*3342, o
+" 2>/dev/null; then pass "token_report --json aggregates main + subagents"; else fail "token_report --json" "$out"; fi
+}
+
 echo "debate_lib.py regression suite"
 echo "  target : $TOOLS_DIR/debate_lib.py"
 echo "  tmpdir : $WORKDIR"
@@ -279,6 +338,7 @@ t_slug
 t_status
 t_once_dump
 t_markdown
+t_tokens
 
 echo
 echo "-------------------------------------------"

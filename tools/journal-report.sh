@@ -100,6 +100,25 @@ def verifier_bucket(v):
         return "failed"
     return "other"
 
+# --- token cost (optional `tokens` field on an entry) ------------------------
+def fmt_tok(nn):
+    nn = int(nn or 0)
+    if nn < 1000:
+        return str(nn)
+    if nn < 1_000_000:
+        return f"{nn / 1000:.1f}k"
+    return f"{nn / 1_000_000:.1f}M"
+
+def tok_total(tk):
+    if not isinstance(tk, dict):
+        return 0
+    if "total" in tk:
+        return int(tk.get("total") or 0)
+    return sum(int(tk.get(k, 0) or 0) for k in ("input", "output", "cache_read", "cache_create"))
+
+def tok_out(tk):
+    return int(tk.get("output", 0) or 0) if isinstance(tk, dict) else 0
+
 if not entries:
     extra = f"  ({malformed} malformed line(s) skipped)" if malformed else ""
     print(f"Angel's Advocate journal: 0 decisions logged.{extra}")
@@ -132,6 +151,9 @@ if mode == "recent":
                 disp = g(d, "disposition", "?")
                 item = one_line(g(d, "item", "(no item)"), 90)
                 print(f"      - [{disp}]  {item}")
+        tk = obj.get("tokens")
+        if isinstance(tk, dict) and tok_total(tk):
+            print(f"    tokens : {fmt_tok(tok_total(tk))} total  (out {fmt_tok(tok_out(tk))})")
         print()
     sys.exit(0)
 
@@ -235,4 +257,18 @@ print(f"   {len(skips)} decision(s) logged as a noted 'skip'.")
 print("   The gate's real risk is UNDER-firing (skipping review that should have fired).")
 print("   That is only measurable if near-misses get logged as skip — a low count here")
 print("   with many real decisions may mean skips aren't being recorded, not that none happened.")
+print()
+
+# token cost (only entries that logged a `tokens` field)
+priced = [e for e in entries if tok_total(e.get("tokens"))]
+print("Token cost  (decisions that logged tokens):")
+if priced:
+    tot = sum(tok_total(e.get("tokens")) for e in priced)
+    out = sum(tok_out(e.get("tokens")) for e in priced)
+    print(f"   {len(priced)} of {n} decision(s) logged tokens: {fmt_tok(tot)} total, {fmt_tok(out)} output")
+    costliest = sorted(priced, key=lambda e: tok_total(e.get("tokens")), reverse=True)[:3]
+    for e in costliest:
+        print(f"   - {fmt_tok(tok_total(e.get('tokens'))):>7}  {one_line(g(e,'target','(no target)'), 70)}")
+else:
+    print("   (none logged tokens yet — add a `tokens` field via tools/token-report.sh; see CLAUDE.md)")
 PY

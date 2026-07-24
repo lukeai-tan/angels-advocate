@@ -16,9 +16,10 @@ a live status, and a stream of that agent's thinking + tool calls + output.
 All parsing lives in debate_lib (unit-tested). This file is the thin curses shell:
 roster pane on top, streaming detail for the focused agent below.
 
-Keys:  q quit   j/↓ next agent   k/↑ prev agent   f toggle follow-newest   a expand roster
-The roster scrolls to keep the selected agent in view (▲/▼ mark more above/below); press `a`
-to expand it full-screen and scan every agent when the cast is large.
+Keys:  q quit   j/↓,k/↑ select agent   [ ] prev/next debate   a all-agents toggle   f follow
+By default the roster shows only the CURRENT debate — a session's subagents/ dir accumulates
+every agent for the whole session, so they're grouped into debates by start-time gap and only
+the newest cluster is shown. `[`/`]` step through older debates; `a` shows the whole session.
 
 Honest caveat surfaced in the UI: the active/done status is an mtime heuristic (Claude
 Code emits no explicit per-agent 'finished' marker in the transcript), not ground truth.
@@ -186,14 +187,15 @@ def _clamp_scroll(focus, top, height, n):
     return max(0, min(top, max(0, n - height)))
 
 
-_ROLE_W = 13          # role column (fits "interpreter"/"test-writer" + an "angel 😇" glyph)
+_ROLE_W = 15          # role column: fits the longest name ("interpreter"/"test-writer") + " 😇"
+_TOK_W = 8            # tokens column (compact, e.g. "1.9M")
 _STAT_W = 13          # status column
 _SEP = " │ "          # column separator (│ is width-1 geometric, alignment-safe)
 
 
 def _roster_model_w(maxx):
     """Width of the model column, filling what's left after the fixed columns."""
-    return max(10, maxx - 1 - 2 - _ROLE_W - _STAT_W - 2 * len(_SEP))
+    return max(8, maxx - 1 - 2 - _ROLE_W - _TOK_W - _STAT_W - 3 * len(_SEP))
 
 
 def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, now):
@@ -204,9 +206,10 @@ def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, n
     model_w = _roster_model_w(maxx)
     # header + rule
     header = ("  " + dl.pad_display("ROLE", _ROLE_W) + _SEP
-              + dl.pad_display("MODEL", model_w) + _SEP + "STATUS")
+              + dl.pad_display("MODEL", model_w) + _SEP
+              + dl.pad_display("TOKENS", _TOK_W) + _SEP + "STATUS")
     _safe_addstr(win, top_y, 0, header[: maxx - 1], attrs["hdr"])
-    rule_w = min(maxx - 1, 2 + _ROLE_W + len(_SEP) + model_w + len(_SEP) + _STAT_W)
+    rule_w = min(maxx - 1, 2 + _ROLE_W + _TOK_W + _STAT_W + 3 * len(_SEP) + model_w)
     _safe_addstr(win, top_y + 1, 0, "─" * rule_w, attrs["dim"])
 
     body_y = top_y + 2
@@ -230,13 +233,16 @@ def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, n
         dot = "*" if status == "active" else " "     # ASCII status flag (width-stable)
         act = dl.activity_label(a["events"][-1]["kind"]) if (status == "active" and a["events"]) else "done"
         st_key = "active" if status == "active" else "done"
-        em = dl.role_emoji(a["role"])                 # only angel/devil; sits right after the name
+        em = dl.role_emoji(a["role"])                 # sits right after the name
         name = f"{a['role'] or '?'}" + (f" {em}" if em else "")
+        tok = dl.fmt_tokens(dl.usage_total(a.get("usage") or {}))
         row = [
             (f"{marker} ", "active" if focused else "plain"),
             (dl.pad_display(name, _ROLE_W), "active" if focused else "plain"),
             (_SEP, "dim"),
             (dl.pad_display(a["model"] or "?", model_w), "dim"),
+            (_SEP, "dim"),
+            (dl.pad_display(tok, _TOK_W), "plain"),
             (_SEP, "dim"),
             (dl.pad_display(f"{dot} {act}", _STAT_W), st_key),
         ]
@@ -251,12 +257,13 @@ def run_live(stdscr, subagents_dir, label):
     stdscr.timeout(int(POLL_SECONDS * 1000))
     attrs = _build_attrs(curses)
 
-    agents = {}   # path -> {path, role, model, offset, events, mtime, order}
+    agents = {}   # path -> {path, role, model, offset, events, mtime, order, usage}
     order = 0
     focus = 0
     follow = True
     roster_top = 0     # scroll offset for the roster window
-    expand = False     # 'a' -> full-screen roster (scan the whole agent list)
+    show_all = False   # 'a' -> show the whole session; default is the current debate only
+    debate_idx = 0     # which debate cluster is shown (default follows the newest)
 
     while True:
         # --- ingest new data ---
@@ -265,8 +272,9 @@ def run_live(stdscr, subagents_dir, label):
             st = agents.get(path)
             if st is None:
                 role, model = dl.file_role(path)
-                st = {"path": path, "role": role, "model": model,
-                      "offset": 0, "events": [], "mtime": 0.0, "order": order}
+                st = {"path": path, "role": role, "model": model, "offset": 0,
+                      "events": [], "mtime": 0.0, "order": order,
+                      "usage": dl.blank_usage(), "usage_m": -1.0}
                 order += 1
                 agents[path] = st
             new_events, st["offset"] = dl.parse_new(path, st["offset"])
@@ -281,40 +289,54 @@ def run_live(stdscr, subagents_dir, label):
                 st["mtime"] = os.path.getmtime(path)
             except OSError:
                 pass
+            if st["mtime"] > st["usage_m"]:          # re-sum usage only when the file changed
+                st["usage"] = dl.usage_from_file(path)
+                st["usage_m"] = st["mtime"]
 
         ordered = sorted(agents.values(), key=lambda a: a["order"])
-        if ordered and follow:
-            # focus the most-recently-active agent
-            newest = max(range(len(ordered)), key=lambda i: ordered[i]["mtime"])
-            focus = newest
-        focus = max(0, min(focus, len(ordered) - 1)) if ordered else 0
+        # scope to a single debate (default) or the whole session ('a' toggles show_all).
+        # Debates are recovered by splitting on a start-time gap (see dl.cluster_debates).
+        if show_all:
+            clusters = [ordered] if ordered else []
+        else:
+            clusters = dl.cluster_debates(ordered)
+        if follow and clusters:
+            debate_idx = len(clusters) - 1          # live: follow the current (newest) debate
+        debate_idx = max(0, min(debate_idx, len(clusters) - 1)) if clusters else 0
+        shown = clusters[debate_idx] if clusters else []
+        if shown and follow:
+            focus = max(range(len(shown)), key=lambda i: shown[i]["mtime"])
+        focus = max(0, min(focus, len(shown) - 1)) if shown else 0
 
         # --- draw ---
         stdscr.erase()
         maxy, maxx = stdscr.getmaxyx()
-        n = len(ordered)
+        n = len(shown)
 
-        pos = f"{focus + 1}/{n}" if n else "0/0"
-        title = f" Angel's Advocate · {label} · {pos} agent(s) "
+        sess_u = dl.blank_usage()                    # token total is session-wide (all agents)
+        for a in agents.values():
+            sess_u = dl.add_usage(sess_u, a.get("usage") or {})
+        toks = f" · {dl.fmt_tokens(dl.usage_total(sess_u))} tok" if agents else ""
+        if show_all:
+            scope = f"all {len(ordered)} agent(s)"
+        elif clusters:
+            scope = f"debate {debate_idx + 1}/{len(clusters)} · {n} agent(s)"
+        else:
+            scope = "0 agents"
+        title = f" Angel's Advocate · {label} · {scope}{toks} "
         _safe_addstr(stdscr, 0, 0, title.ljust(maxx - 1)[: maxx - 1], attrs["bar"])
 
         if not n:
             _safe_addstr(stdscr, 2, 0, " waiting for agents to spawn… ", attrs["dim"])
-        elif expand:
-            # full-screen roster: scan the whole list, scrolling to keep focus visible
-            roster_h = max(3, maxy - 2)                 # includes 2 header rows
-            roster_top = _clamp_scroll(focus, roster_top, roster_h - 2, n)
-            _draw_roster(stdscr, ordered, focus, roster_top, 1, roster_h, attrs, maxx, now)
         else:
-            # split: roster takes what it needs (+2 for the header), up to ~60% of the screen;
-            # scrolls beyond that (so a big cast never silently hides agents) — detail keeps the rest.
+            # split: roster (+2 for the header) up to ~60% of the screen, scrolls beyond that.
             roster_h = min(n + 2, max(5, (maxy - 3) * 3 // 5))
             roster_top = _clamp_scroll(focus, roster_top, roster_h - 2, n)
-            _draw_roster(stdscr, ordered, focus, roster_top, 1, roster_h, attrs, maxx, now)
+            _draw_roster(stdscr, shown, focus, roster_top, 1, roster_h, attrs, maxx, now)
 
             sep_y = 1 + roster_h
             _safe_addstr(stdscr, sep_y, 0, "─" * (maxx - 1), attrs["dim"])
-            a = ordered[focus]
+            a = shown[focus]
             em = dl.role_emoji(a["role"])
             name = f"{a['role'] or '?'}" + (f" {em}" if em else "")   # emoji after the name
             hdr = f" {name} — {a['model'] or '?'} "
@@ -335,8 +357,8 @@ def run_live(stdscr, subagents_dir, label):
                 for j, r in enumerate(tail):
                     _render_row(stdscr, body_top + (1 if hint else 0) + j, 0, r, attrs, maxx)
 
-        footer = (f" q quit · j/k select · f follow:{'on' if follow else 'off'} · "
-                  f"a {'split view' if expand else 'all agents'} · ● active ")
+        footer = (f" q quit · j/k select · [ ] debate · a {'one debate' if show_all else 'all agents'}"
+                  f" · f follow:{'on' if follow else 'off'} ")
         _safe_addstr(stdscr, maxy - 1, 0, footer.ljust(maxx - 1)[: maxx - 1], attrs["bar"])
         stdscr.refresh()
 
@@ -349,16 +371,26 @@ def run_live(stdscr, subagents_dir, label):
             break
         elif ch in (ord("j"), curses.KEY_DOWN):
             follow = False
-            if ordered:
-                focus = min(focus + 1, len(ordered) - 1)
+            if shown:
+                focus = min(focus + 1, len(shown) - 1)
         elif ch in (ord("k"), curses.KEY_UP):
             follow = False
-            if ordered:
+            if shown:
                 focus = max(focus - 1, 0)
+        elif ch in (ord("]"), curses.KEY_RIGHT):       # next (newer) debate
+            follow = False
+            debate_idx = min(debate_idx + 1, max(0, len(clusters) - 1))
+            focus = 0
+        elif ch in (ord("["), curses.KEY_LEFT):        # previous (older) debate
+            follow = False
+            debate_idx = max(debate_idx - 1, 0)
+            focus = 0
         elif ch == ord("f"):
             follow = not follow
         elif ch == ord("a"):
-            expand = not expand
+            show_all = not show_all
+            follow = False
+            focus = 0
 
 
 def main(argv=None):

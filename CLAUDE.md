@@ -364,6 +364,18 @@ printf '%s' '{"gate":"<fork|structural|irreversible|assumption|wrong-problem|lig
 ```
 (`verifier: "n/a"` when the verdict was advisory with no code written. The script adds the timestamp.)
 
+**Optional — record the debate's token cost.** For a *structural* decision (one that spawned
+subagents), you can add a `"tokens"` field so `/journal` and `/gate-audit` can show cost per
+verdict. Compute the debate's subagent cost with the token helper, filtering to this session's
+subagents since the debate began (pass the timestamp of your first spawn as `--since`):
+```
+tools/token-report.sh --session <this-session-id> --subagents-only --since <ISO-UTC> --json
+```
+It prints a `total` usage object (`{input,output,cache_read,cache_create}`) — drop that in as the
+entry's `"tokens"` value. It's optional and best-effort (same reliability caveat as the journal
+itself); omit it for advisory/light decisions. Full token totals across all sessions:
+`tools/token-report.sh`.
+
 - **Log every gated decision** — including a `skip` you noted a ⚠️ on, and advisory verdicts. Under-firing
   is only measurable if the near-misses are recorded too.
 - **Don't log** trivial ungated work (the gate's "just act" cases) — that's noise.
