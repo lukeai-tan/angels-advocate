@@ -287,6 +287,13 @@ def clip_to_width(s, cols):
     return "".join(out)
 
 
+def pad_display(s, width):
+    """Left-justify s to `width` DISPLAY columns (clipping if longer), emoji-aware — so a field
+    containing a 2-column emoji still lands on the same column boundary as a plain-text field."""
+    s = clip_to_width(s or "", width)
+    return s + " " * max(0, width - display_width(s))
+
+
 def parse_inline(text):
     """Split one line into [(text, style)] segments, interpreting `**bold**` and `` `code` ``.
     style is 'plain' | 'b' (bold) | 'c' (code). Single `*` emphasis markers are stripped.

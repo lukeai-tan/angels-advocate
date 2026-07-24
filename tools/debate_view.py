@@ -186,16 +186,33 @@ def _clamp_scroll(focus, top, height, n):
     return max(0, min(top, max(0, n - height)))
 
 
-def _draw_roster(win, ordered, focus, roster_top, top_y, roster_h, attrs, maxx, now):
-    """Draw the scrollable roster window. Shows ▶ on the focused agent and ▲/▼ on the top/
-    bottom visible row when the list is scrolled past that edge, so no agent is silently hidden.
+_ROLE_W = 13          # role column (fits "interpreter"/"test-writer" + an "angel 😇" glyph)
+_STAT_W = 13          # status column
+_SEP = " │ "          # column separator (│ is width-1 geometric, alignment-safe)
 
-    Alignment note: emoji display width is terminal-dependent (a variation-selector glyph like
-    🛡️ can render 1–3 columns, and no width table can predict every terminal/font). So the
-    columns that must line up — name, model, status — are led by fixed-width ASCII and geometric
-    glyphs only; the role emoji is placed at the END of the row, where its width shifts nothing."""
+
+def _roster_model_w(maxx):
+    """Width of the model column, filling what's left after the fixed columns."""
+    return max(10, maxx - 1 - 2 - _ROLE_W - _STAT_W - 2 * len(_SEP))
+
+
+def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, now):
+    """Draw the scrollable roster as a table: a ROLE │ MODEL │ STATUS header + rule, then agent
+    rows. Shows ▶ on the focused agent and ▲/▼ when scrolled past the top/bottom edge. Fields use
+    display-aware padding, so the angel/devil emoji (placed right after the name) keeps the columns
+    aligned. `total_h` includes the 2 header rows; the rest are agent rows."""
+    model_w = _roster_model_w(maxx)
+    # header + rule
+    header = ("  " + dl.pad_display("ROLE", _ROLE_W) + _SEP
+              + dl.pad_display("MODEL", model_w) + _SEP + "STATUS")
+    _safe_addstr(win, top_y, 0, header[: maxx - 1], attrs["hdr"])
+    rule_w = min(maxx - 1, 2 + _ROLE_W + len(_SEP) + model_w + len(_SEP) + _STAT_W)
+    _safe_addstr(win, top_y + 1, 0, "─" * rule_w, attrs["dim"])
+
+    body_y = top_y + 2
+    vis = max(1, total_h - 2)
     n = len(ordered)
-    for row_i in range(roster_h):
+    for row_i in range(vis):
         idx = roster_top + row_i
         if idx >= n:
             break
@@ -206,24 +223,24 @@ def _draw_roster(win, ordered, focus, roster_top, top_y, roster_h, attrs, maxx, 
             marker = "▶"
         elif row_i == 0 and roster_top > 0:
             marker = "▲"
-        elif row_i == roster_h - 1 and idx < n - 1:
+        elif row_i == vis - 1 and idx < n - 1:
             marker = "▼"
         else:
             marker = " "
         dot = "*" if status == "active" else " "     # ASCII status flag (width-stable)
         act = dl.activity_label(a["events"][-1]["kind"]) if (status == "active" and a["events"]) else "done"
         st_key = "active" if status == "active" else "done"
+        em = dl.role_emoji(a["role"])                 # only angel/devil; sits right after the name
+        name = f"{a['role'] or '?'}" + (f" {em}" if em else "")
         row = [
-            (f"{marker} ", "active" if focused else "plain"),          # ▶/▲/▼ are width-1 geometric
-            (f"{(a['role'] or '?'):<12}", "active" if focused else "plain"),
-            (f"[{a['model'] or '?'}] ", "dim"),
-            (f"{dot} ", st_key),
-            (f"{act:<12}", st_key),
+            (f"{marker} ", "active" if focused else "plain"),
+            (dl.pad_display(name, _ROLE_W), "active" if focused else "plain"),
+            (_SEP, "dim"),
+            (dl.pad_display(a["model"] or "?", model_w), "dim"),
+            (_SEP, "dim"),
+            (dl.pad_display(f"{dot} {act}", _STAT_W), st_key),
         ]
-        em = dl.role_emoji(a["role"])                                   # only angel/devil; LAST so
-        if em:                                                         # its width can't misalign
-            row.append((f" {em}", "plain"))
-        _render_row(win, top_y + row_i, 0, row, attrs, maxx)
+        _render_row(win, body_y + row_i, 0, row, attrs, maxx)
 
 
 def run_live(stdscr, subagents_dir, label):
@@ -285,22 +302,22 @@ def run_live(stdscr, subagents_dir, label):
             _safe_addstr(stdscr, 2, 0, " waiting for agents to spawn… ", attrs["dim"])
         elif expand:
             # full-screen roster: scan the whole list, scrolling to keep focus visible
-            roster_h = max(1, maxy - 2)
-            roster_top = _clamp_scroll(focus, roster_top, roster_h, n)
+            roster_h = max(3, maxy - 2)                 # includes 2 header rows
+            roster_top = _clamp_scroll(focus, roster_top, roster_h - 2, n)
             _draw_roster(stdscr, ordered, focus, roster_top, 1, roster_h, attrs, maxx, now)
         else:
-            # split: roster takes what it needs, up to ~60% of the screen; scrolls beyond that
-            # (so a big cast never silently hides agents) — detail keeps the rest.
-            roster_h = min(n, max(3, (maxy - 3) * 3 // 5))
-            roster_top = _clamp_scroll(focus, roster_top, roster_h, n)
+            # split: roster takes what it needs (+2 for the header), up to ~60% of the screen;
+            # scrolls beyond that (so a big cast never silently hides agents) — detail keeps the rest.
+            roster_h = min(n + 2, max(5, (maxy - 3) * 3 // 5))
+            roster_top = _clamp_scroll(focus, roster_top, roster_h - 2, n)
             _draw_roster(stdscr, ordered, focus, roster_top, 1, roster_h, attrs, maxx, now)
 
             sep_y = 1 + roster_h
             _safe_addstr(stdscr, sep_y, 0, "─" * (maxx - 1), attrs["dim"])
             a = ordered[focus]
             em = dl.role_emoji(a["role"])
-            hg = f"{em} " if em else ""
-            hdr = f" {hg}{a['role'] or '?'} — {a['model'] or '?'} "
+            name = f"{a['role'] or '?'}" + (f" {em}" if em else "")   # emoji after the name
+            hdr = f" {name} — {a['model'] or '?'} "
             _safe_addstr(stdscr, sep_y + 1, 0, hdr.ljust(maxx - 1)[: maxx - 1], attrs["hdr"])
 
             body_top = sep_y + 2

@@ -237,6 +237,13 @@ assert '💭' not in dump and '🔧' not in dump and '📣' not in dump, repr(du
 import debate_lib as dl
 assert dl.strip_inline_md('**DEALBREAKER**: the \`fn\` breaks') == 'DEALBREAKER: the fn breaks'
 "
+	pyt "pad_display: fields reach the same DISPLAY width with or without an emoji (columns line up)" "
+import debate_lib as dl
+a = dl.pad_display('angel 😇', 13)      # name + 2-col emoji
+b = dl.pad_display('red-teamer', 13)     # plain name
+assert dl.display_width(a) == 13 and dl.display_width(b) == 13, (dl.display_width(a), dl.display_width(b))
+assert dl.pad_display('verylongmodelname-that-overflows', 8) == 'verylong'  # clips, never over-wide
+"
 	pyt "display_width: emoji=2, variation-selector=0, ascii=1 (aligns 🛡️ with ✅)" "
 import debate_lib as dl
 assert dl.char_width(ord('a')) == 1
