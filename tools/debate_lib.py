@@ -29,6 +29,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import time
 
 # Role -> emoji for the roster/detail. Unknown roles fall back to a neutral marker.
@@ -246,6 +247,153 @@ def short_tool_input(inp, limit=100):
     return s if len(s) <= limit else s[: limit - 1] + "…"
 
 
+# --- markdown-lite rendering -------------------------------------------------
+#
+# The advocates write Markdown (**bold**, `code`, # headers, - bullets). A terminal can't
+# render Markdown, so raw text shows literal asterisks/backticks. These pure functions turn
+# a line into styled segments the curses UI paints with real attributes, and strip the
+# syntax for the plain --once dump. Kept here (not in the curses shell) so they're unit-tested.
+
+def char_width(cp):
+    """Terminal display width of a code point: 0 for zero-width (variation selectors, ZWJ,
+    combining marks), 2 for wide/emoji, else 1. Approximate but matches how common terminals
+    render — enough to keep columns aligned. The key case: a variation selector (U+FE0F, as in
+    the 🛡️ shield) is a real code point but paints 0 columns, so counting it with len() shoves
+    the rest of the row right."""
+    if cp == 0:
+        return 0
+    if (0x200B <= cp <= 0x200F or 0xFE00 <= cp <= 0xFE0F      # ZW spaces/joiners, var selectors
+            or 0x0300 <= cp <= 0x036F or cp == 0x2060):        # combining diacritics, word joiner
+        return 0
+    if (0x1100 <= cp <= 0x115F or 0x2E80 <= cp <= 0xA4CF or 0xAC00 <= cp <= 0xD7A3
+            or 0xF900 <= cp <= 0xFAFF or 0xFE30 <= cp <= 0xFE4F or 0xFF00 <= cp <= 0xFF60
+            or 0xFFE0 <= cp <= 0xFFE6 or 0x2600 <= cp <= 0x27BF or 0x2B00 <= cp <= 0x2BFF
+            or 0x1F000 <= cp <= 0x1FAFF):                      # CJK + symbols/dingbats + emoji
+        return 2
+    return 1
+
+
+def display_width(s):
+    """Sum of char_width over a string — its rendered column count."""
+    return sum(char_width(ord(c)) for c in s or "")
+
+
+def clip_to_width(s, cols):
+    """Longest prefix of s that fits in `cols` display columns (never splits a wide char)."""
+    out, w = [], 0
+    for c in s or "":
+        cw = char_width(ord(c))
+        if w + cw > cols:
+            break
+        out.append(c); w += cw
+    return "".join(out)
+
+
+def parse_inline(text):
+    """Split one line into [(text, style)] segments, interpreting `**bold**` and `` `code` ``.
+    style is 'plain' | 'b' (bold) | 'c' (code). Single `*` emphasis markers are stripped.
+    Unmatched markers are treated as literal. Never raises."""
+    segs, buf, i, n = [], [], 0, len(text or "")
+    text = text or ""
+
+    def push(s, st):
+        if s:
+            segs.append((s, st))
+
+    while i < n:
+        c = text[i]
+        if c == "`":
+            j = text.find("`", i + 1)
+            if j == -1:
+                buf.append(c); i += 1; continue
+            push("".join(buf), "plain"); buf = []
+            push(text[i + 1:j], "c"); i = j + 1; continue
+        if c == "*" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("**", i + 2)
+            if j == -1:
+                buf.append("**"); i += 2; continue
+            push("".join(buf), "plain"); buf = []
+            push(text[i + 2:j], "b"); i = j + 2; continue
+        if c == "*":            # single-asterisk emphasis: drop the marker, keep the word
+            i += 1; continue
+        buf.append(c); i += 1
+    push("".join(buf), "plain")
+    return segs or [("", "plain")]
+
+
+def classify_line(line):
+    """Classify a raw markdown line -> (kind, content, indent). kind is
+    'header'|'bullet'|'quote'|'fence'|'normal'; content has the leading marker removed;
+    indent is the leading-space count (for nesting)."""
+    s = (line or "").rstrip("\n")
+    stripped = s.lstrip(" ")
+    lead = len(s) - len(stripped)
+    if stripped.startswith("```"):
+        return ("fence", "", lead)
+    m = re.match(r"(#{1,6})\s+(.*)", stripped)
+    if m:
+        return ("header", m.group(2), lead)
+    m = re.match(r"[-*+]\s+(.*)", stripped)
+    if m:
+        return ("bullet", m.group(1), lead)
+    if stripped.startswith(">"):
+        return ("quote", stripped[1:].lstrip(" "), lead)
+    return ("normal", stripped, lead)
+
+
+def strip_inline_md(text):
+    """Plain-text form of a line with **/`/* markers removed (for the --once dump)."""
+    return "".join(t for t, _ in parse_inline(text))
+
+
+def _tokenize_words(segments):
+    """Group [(text, style)] segments into words, where a word is a list of styled pieces
+    with NO spaces. A word may span styles (so `**DEAL**:` stays one word `DEAL:` with the
+    colon attached), and adjacent segments are only split where whitespace actually was —
+    this avoids inserting spurious spaces around bold/code boundaries."""
+    words, cur = [], []
+    for text, style in segments:
+        for part in re.split(r"(\s+)", text or ""):
+            if part == "":
+                continue
+            if part.isspace():
+                if cur:
+                    words.append(cur); cur = []
+            else:
+                cur.append((part, style))
+    if cur:
+        words.append(cur)
+    return words
+
+
+def wrap_segments(segments, width, indent=0):
+    """Word-wrap [(text, style)] into display rows (each a list of (text, style)), not
+    exceeding `width` columns; every row is prefixed with `indent` spaces. Per-piece style
+    is preserved across wrap points, and words that span styles stay intact. A single word
+    longer than the width is left over-long (the caller clips it) rather than hard-split."""
+    width = max(4, width)
+    avail = max(1, width - indent)
+    pad = " " * indent
+    rows, cur, cur_len = [], [], 0
+
+    def flush():
+        nonlocal cur, cur_len
+        row = ([(pad, "plain")] if indent else []) + (cur or [("", "plain")])
+        rows.append(row)
+        cur, cur_len = [], 0
+
+    for word in _tokenize_words(segments):
+        wl = sum(display_width(t) for t, _ in word)
+        if cur_len == 0:
+            cur.extend(word); cur_len = wl
+        elif cur_len + 1 + wl <= avail:
+            cur.append((" ", "plain")); cur.extend(word); cur_len += 1 + wl
+        else:
+            flush(); cur.extend(word); cur_len = wl
+    flush()
+    return rows
+
+
 def render_dump(agents):
     """Plain-text, grouped-by-role transcript for --once / non-TTY output.
     `agents` is a list of dicts: {role, model, events:[...]}. Returns a string."""
@@ -258,11 +406,11 @@ def render_dump(agents):
             if k == "thinking":
                 lines.append("  💭 thinking")
                 for ln in (e.get("text") or "").splitlines():
-                    lines.append(f"     {ln}")
+                    lines.append(f"     {strip_inline_md(ln)}")
             elif k == "text":
                 lines.append("  📣 output")
                 for ln in (e.get("text") or "").splitlines():
-                    lines.append(f"     {ln}")
+                    lines.append(f"     {strip_inline_md(ln)}")
             elif k == "tool_use":
                 lines.append(f"  🔧 {e.get('name', '')}  {short_tool_input(e.get('input'))}")
             elif k == "tool_result":

@@ -16,7 +16,9 @@ a live status, and a stream of that agent's thinking + tool calls + output.
 All parsing lives in debate_lib (unit-tested). This file is the thin curses shell:
 roster pane on top, streaming detail for the focused agent below.
 
-Keys:  q quit   j/↓ next agent   k/↑ prev agent   f toggle follow-newest
+Keys:  q quit   j/↓ next agent   k/↑ prev agent   f toggle follow-newest   a expand roster
+The roster scrolls to keep the selected agent in view (▲/▼ mark more above/below); press `a`
+to expand it full-screen and scan every agent when the cast is large.
 
 Honest caveat surfaced in the UI: the active/done status is an mtime heuristic (Claude
 Code emits no explicit per-agent 'finished' marker in the transcript), not ground truth.
@@ -27,7 +29,6 @@ import argparse
 import locale
 import os
 import sys
-import textwrap
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -83,30 +84,76 @@ def run_check_independence(subagents_dir, label, arbiter_model):
 
 # --- live curses UI ----------------------------------------------------------
 
-def _detail_lines(agent, width):
-    """Flatten one agent's events into wrapped display lines for the detail pane."""
-    out = []
-    wrap = lambda s, sub: textwrap.wrap(s, max(10, width - len(sub)), subsequent_indent=" " * len(sub)) or [""]
+def _detail_rows(agent, width):
+    """Build the detail pane as styled rows. Each row is a list of (text, style) segments;
+    style is a key into the attr map (_build_attrs). Markdown in thinking/output is rendered
+    into real styles (bold/code/header/bullet) instead of showing literal ** and ` syntax."""
+    rows = []
+
+    def para(text, indent):
+        for raw in (text or "").splitlines():
+            kind, content, lead = dl.classify_line(raw)
+            base = indent + (lead // 2)
+            if kind == "fence":
+                continue  # drop ``` fence lines; the content between still renders
+            if kind == "header":
+                for r in dl.wrap_segments(dl.parse_inline(content), width, base):
+                    rows.append([(t, "mdh") for t, _ in r])   # whole header line accented
+            elif kind == "bullet":
+                rows.extend(dl.wrap_segments([("• ", "bullet")] + dl.parse_inline(content), width, base))
+            elif kind == "quote":
+                rows.extend(dl.wrap_segments([("┃ ", "dim")] + dl.parse_inline(content), width, base))
+            elif content.strip() == "":
+                rows.append([("", "plain")])
+            else:
+                rows.extend(dl.wrap_segments(dl.parse_inline(content), width, base))
+
     for e in agent["events"]:
         k = e["kind"]
         if k == "thinking":
-            out.append("💭 thinking")
-            for ln in (e.get("text") or "").splitlines():
-                out.extend("   " + w for w in wrap(ln, "   "))
+            rows.append([("💭 thinking", "think")]); para(e.get("text"), 3)
         elif k == "text":
-            out.append("📣 output")
-            for ln in (e.get("text") or "").splitlines():
-                out.extend("   " + w for w in wrap(ln, "   "))
+            rows.append([("📣 output", "label")]); para(e.get("text"), 3)
         elif k == "tool_use":
-            head = f"🔧 {e.get('name', '')}  {dl.short_tool_input(e.get('input'))}"
-            out.extend(wrap(head, ""))
+            rows.append([(f"🔧 {e.get('name', '')} ", "tool"),
+                         (dl.short_tool_input(e.get("input")), "dim")])
         elif k == "tool_result":
             snippet = " ".join((e.get("text") or "").split())
-            out.extend("   ↳ " + w for w in wrap(snippet[:400], "   ↳ "))
+            rows.extend(dl.wrap_segments([("↳ " + snippet[:400], "dim")], width, 3))
         elif k == "prompt":
             snippet = " ".join((e.get("text") or "").split())
-            out.extend("… briefed: " + w for w in wrap(snippet[:200], "… briefed: "))
-    return out
+            rows.extend(dl.wrap_segments([("briefed: " + snippet[:200], "dim")], width, 0))
+    return rows
+
+
+def _build_attrs(curses):
+    """style-key -> curses attribute. Uses color when the terminal has it, degrading to
+    bold/dim/reverse otherwise so it stays readable on a mono terminal."""
+    a = {"plain": 0, "label": curses.A_BOLD, "think": curses.A_DIM, "b": curses.A_BOLD,
+         "c": curses.A_REVERSE, "mdh": curses.A_BOLD, "dim": curses.A_DIM,
+         "tool": curses.A_BOLD, "bullet": curses.A_BOLD,
+         "bar": curses.A_REVERSE, "active": curses.A_BOLD, "done": curses.A_DIM,
+         "hdr": curses.A_BOLD | curses.A_UNDERLINE}
+    try:
+        if curses.has_colors():
+            curses.start_color()
+            curses.use_default_colors()
+            curses.init_pair(1, curses.COLOR_CYAN, -1)
+            curses.init_pair(2, curses.COLOR_GREEN, -1)
+            curses.init_pair(3, curses.COLOR_YELLOW, -1)
+            curses.init_pair(4, curses.COLOR_MAGENTA, -1)
+            C = curses.color_pair
+            a["label"] = C(1) | curses.A_BOLD
+            a["think"] = C(4) | curses.A_DIM
+            a["mdh"] = C(1) | curses.A_BOLD
+            a["c"] = C(3)
+            a["tool"] = C(2) | curses.A_BOLD
+            a["bullet"] = C(1) | curses.A_BOLD
+            a["active"] = C(2) | curses.A_BOLD
+            a["hdr"] = C(1) | curses.A_BOLD
+    except Exception:
+        pass  # any color init failure -> keep the mono fallbacks
+    return a
 
 
 def _safe_addstr(win, y, x, s, attr=0):
@@ -116,17 +163,81 @@ def _safe_addstr(win, y, x, s, attr=0):
         pass  # off-screen / unrenderable glyph — never let drawing crash the loop
 
 
+def _render_row(win, y, x0, row, attrs, maxx):
+    """Paint one styled row (list of (text, style)) left-to-right, clipped to the width.
+    Advances by DISPLAY width (not len) so variation-selector emoji like 🛡️ don't push the
+    rest of the row out of alignment."""
+    x = x0
+    for text, key in row:
+        avail = maxx - 1 - x
+        if avail <= 0:
+            break
+        seg = dl.clip_to_width(text, avail)
+        _safe_addstr(win, y, x, seg, attrs.get(key, 0))
+        x += dl.display_width(seg)
+
+
+def _clamp_scroll(focus, top, height, n):
+    """Scroll offset that keeps `focus` inside a window of `height` rows over `n` items."""
+    if focus < top:
+        top = focus
+    elif focus >= top + height:
+        top = focus - height + 1
+    return max(0, min(top, max(0, n - height)))
+
+
+def _draw_roster(win, ordered, focus, roster_top, top_y, roster_h, attrs, maxx, now):
+    """Draw the scrollable roster window. Shows ▶ on the focused agent and ▲/▼ on the top/
+    bottom visible row when the list is scrolled past that edge, so no agent is silently hidden.
+
+    Alignment note: emoji display width is terminal-dependent (a variation-selector glyph like
+    🛡️ can render 1–3 columns, and no width table can predict every terminal/font). So the
+    columns that must line up — name, model, status — are led by fixed-width ASCII and geometric
+    glyphs only; the role emoji is placed at the END of the row, where its width shifts nothing."""
+    n = len(ordered)
+    for row_i in range(roster_h):
+        idx = roster_top + row_i
+        if idx >= n:
+            break
+        a = ordered[idx]
+        status = dl.agent_status(a["mtime"], now=now)
+        focused = (idx == focus)
+        if focused:
+            marker = "▶"
+        elif row_i == 0 and roster_top > 0:
+            marker = "▲"
+        elif row_i == roster_h - 1 and idx < n - 1:
+            marker = "▼"
+        else:
+            marker = " "
+        dot = "*" if status == "active" else " "     # ASCII status flag (width-stable)
+        act = dl.activity_label(a["events"][-1]["kind"]) if (status == "active" and a["events"]) else "done"
+        st_key = "active" if status == "active" else "done"
+        row = [
+            (f"{marker} ", "active" if focused else "plain"),          # ▶/▲/▼ are width-1 geometric
+            (f"{(a['role'] or '?'):<12}", "active" if focused else "plain"),
+            (f"[{a['model'] or '?'}] ", "dim"),
+            (f"{dot} ", st_key),
+            (f"{act:<12}", st_key),
+            (f" {dl.role_emoji(a['role'])}", "plain"),                 # emoji LAST: width can't misalign
+        ]
+        _render_row(win, top_y + row_i, 0, row, attrs, maxx)
+
+
 def run_live(stdscr, subagents_dir, label):
     import curses
 
     curses.curs_set(0)
     stdscr.nodelay(True)
     stdscr.timeout(int(POLL_SECONDS * 1000))
+    attrs = _build_attrs(curses)
 
     agents = {}   # path -> {path, role, model, offset, events, mtime, order}
     order = 0
     focus = 0
     follow = True
+    roster_top = 0     # scroll offset for the roster window
+    expand = False     # 'a' -> full-screen roster (scan the whole agent list)
 
     while True:
         # --- ingest new data ---
@@ -162,43 +273,50 @@ def run_live(stdscr, subagents_dir, label):
         # --- draw ---
         stdscr.erase()
         maxy, maxx = stdscr.getmaxyx()
-        roster_h = min(len(ordered) + 1, max(3, maxy // 3)) if ordered else 1
+        n = len(ordered)
 
-        _safe_addstr(stdscr, 0, 0,
-                     f" Angel's Advocate · session {label} · {len(ordered)} agent(s) "
-                     f"· follow:{'on' if follow else 'off'} "[: maxx - 1],
-                     curses.A_REVERSE)
+        pos = f"{focus + 1}/{n}" if n else "0/0"
+        title = f" ⚖️  Angel's Advocate · {label} · {pos} agent(s) "
+        _safe_addstr(stdscr, 0, 0, title.ljust(maxx - 1)[: maxx - 1], attrs["bar"])
 
-        for i, a in enumerate(ordered):
-            y = 1 + i
-            if y >= roster_h:
-                break
-            status = dl.agent_status(a["mtime"], now=now)
-            dot = "●" if status == "active" else "○"
-            act = dl.activity_label(a["events"][-1]["kind"]) if (status == "active" and a["events"]) else "done"
-            line = f" {dl.role_emoji(a['role'])} {(a['role'] or '?'):<11} [{a['model'] or '?'}] {dot} {act}"
-            attr = curses.A_BOLD if i == focus else 0
-            _safe_addstr(stdscr, y, 0, line[: maxx - 1], attr)
+        if not n:
+            _safe_addstr(stdscr, 2, 0, " waiting for agents to spawn… ", attrs["dim"])
+        elif expand:
+            # full-screen roster: scan the whole list, scrolling to keep focus visible
+            roster_h = max(1, maxy - 2)
+            roster_top = _clamp_scroll(focus, roster_top, roster_h, n)
+            _draw_roster(stdscr, ordered, focus, roster_top, 1, roster_h, attrs, maxx, now)
+        else:
+            # split: roster takes what it needs, up to ~60% of the screen; scrolls beyond that
+            # (so a big cast never silently hides agents) — detail keeps the rest.
+            roster_h = min(n, max(3, (maxy - 3) * 3 // 5))
+            roster_top = _clamp_scroll(focus, roster_top, roster_h, n)
+            _draw_roster(stdscr, ordered, focus, roster_top, 1, roster_h, attrs, maxx, now)
 
-        sep_y = roster_h
-        _safe_addstr(stdscr, sep_y, 0, "─" * (maxx - 1))
-
-        if ordered:
+            sep_y = 1 + roster_h
+            _safe_addstr(stdscr, sep_y, 0, "─" * (maxx - 1), attrs["dim"])
             a = ordered[focus]
             hdr = f" {dl.role_emoji(a['role'])} {a['role'] or '?'} — {a['model'] or '?'} "
-            _safe_addstr(stdscr, sep_y + 1, 0, hdr[: maxx - 1], curses.A_UNDERLINE)
+            _safe_addstr(stdscr, sep_y + 1, 0, hdr.ljust(maxx - 1)[: maxx - 1], attrs["hdr"])
+
             body_top = sep_y + 2
             body_h = maxy - body_top - 1
-            lines = _detail_lines(a, maxx - 1)
-            tail = lines[-body_h:] if body_h > 0 else []
-            for j, ln in enumerate(tail):
-                _safe_addstr(stdscr, body_top + j, 0, ln[: maxx - 1])
-        else:
-            _safe_addstr(stdscr, sep_y + 1, 0, " waiting for agents to spawn… ")
+            if body_h > 0:
+                rows = _detail_rows(a, maxx - 1)
+                hint = len(rows) > body_h          # more content than fits -> reserve a hint line
+                content_h = body_h - (1 if hint else 0)
+                tail = rows[-content_h:] if content_h > 0 else []
+                if hint:
+                    hidden = len(rows) - len(tail)
+                    _safe_addstr(stdscr, body_top, 0,
+                                 f"  ↑ {hidden} earlier line(s) · showing newest "[: maxx - 1],
+                                 attrs["dim"])
+                for j, r in enumerate(tail):
+                    _render_row(stdscr, body_top + (1 if hint else 0) + j, 0, r, attrs, maxx)
 
-        _safe_addstr(stdscr, maxy - 1, 0,
-                     " q quit · j/k switch agent · f follow · status is an mtime heuristic "[: maxx - 1],
-                     curses.A_REVERSE)
+        footer = (f" q quit · j/k select · f follow:{'on' if follow else 'off'} · "
+                  f"a {'split view' if expand else 'all agents'} · ● active ")
+        _safe_addstr(stdscr, maxy - 1, 0, footer.ljust(maxx - 1)[: maxx - 1], attrs["bar"])
         stdscr.refresh()
 
         # --- input ---
@@ -218,6 +336,8 @@ def run_live(stdscr, subagents_dir, label):
                 focus = max(focus - 1, 0)
         elif ch == ord("f"):
             follow = not follow
+        elif ch == ord("a"):
+            expand = not expand
 
 
 def main(argv=None):

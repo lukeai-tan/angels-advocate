@@ -193,6 +193,55 @@ t_once_dump() {
 	pass "--once dump renders role + thinking + tool + output end to end"
 }
 
+# ---------------------------------------------------------------------------
+# (10) markdown-lite rendering: inline parse, line classify, strip, wrap
+# ---------------------------------------------------------------------------
+t_markdown() {
+	pyt "parse_inline splits bold/code and strips single-* emphasis" "
+import debate_lib as dl
+segs = dl.parse_inline('a **bold** and \`code\` and *em* end')
+# no literal markdown markers survive in the rendered text
+txt = ''.join(t for t,_ in segs)
+assert '**' not in txt and '\`' not in txt, txt
+assert ('bold','b') in segs, segs
+assert ('code','c') in segs, segs
+assert 'em' in txt and '*em*' not in txt, txt   # single-* stripped, word kept
+"
+	pyt "classify_line detects header/bullet/quote/fence, strips marker" "
+import debate_lib as dl
+assert dl.classify_line('## Verdict')[:2] == ('header','Verdict')
+assert dl.classify_line('- point one')[:2] == ('bullet','point one')
+assert dl.classify_line('  * nested')[0] == 'bullet'
+assert dl.classify_line('> quoted')[:2] == ('quote','quoted')
+assert dl.classify_line('\`\`\`python')[0] == 'fence'
+assert dl.classify_line('plain text')[:2] == ('normal','plain text')
+"
+	pyt "strip_inline_md removes all inline markers" "
+import debate_lib as dl
+assert dl.strip_inline_md('**DEALBREAKER**: the \`fn\` breaks') == 'DEALBREAKER: the fn breaks'
+"
+	pyt "display_width: emoji=2, variation-selector=0, ascii=1 (aligns 🛡️ with ✅)" "
+import debate_lib as dl
+assert dl.char_width(ord('a')) == 1
+assert dl.display_width('abc') == 3
+assert dl.display_width('✅') == 2                       # single-codepoint emoji
+assert dl.display_width('🛡️') == 2                       # shield + U+FE0F selector -> 2, not 3
+assert dl.display_width('🛡️') == dl.display_width('✅')   # the two roster glyphs align
+assert dl.clip_to_width('🛡️xy', 2) == '🛡️'              # never splits a wide char; keeps selector
+"
+	pyt "wrap_segments wraps to width, preserves style, applies indent" "
+import debate_lib as dl
+rows = dl.wrap_segments([('one two three four five', 'plain')], 12, indent=2)
+assert len(rows) >= 2, rows
+for r in rows:
+    assert r[0] == ('  ','plain'), r          # indent prefix on every row
+    width = sum(len(t) for t,_ in r)
+    assert width <= 12, (width, r)
+styled = dl.wrap_segments([('keep','b')], 40)
+assert styled[0][-1] == ('keep','b'), styled  # style survives wrapping
+"
+}
+
 echo "debate_lib.py regression suite"
 echo "  target : $TOOLS_DIR/debate_lib.py"
 echo "  tmpdir : $WORKDIR"
@@ -207,6 +256,7 @@ t_discover_and_agentfiles
 t_slug
 t_status
 t_once_dump
+t_markdown
 
 echo
 echo "-------------------------------------------"
