@@ -32,38 +32,36 @@ import os
 import re
 import time
 
-# Role -> emoji for the roster/detail. Unknown roles fall back to a neutral marker.
+# Only angel and devil keep an emoji glyph; every other role renders as plain text. The other
+# glyphs (esp. variation-selector ones like 🛡️ ⚖️ ✂️) rendered at inconsistent widths across
+# terminals, so we omit them. 😇/😈 are single code points (no selector) and width-safe.
 ROLE_EMOJI = {
     "angel": "😇",
     "devil": "😈",
-    "arbiter": "⚖️",
-    "verifier": "✅",
-    "researcher": "🔎",
-    "red-teamer": "🛡️",
-    "interpreter": "🧭",
-    "profiler": "📊",
-    "historian": "📚",
-    "scribe": "📝",
-    "test-writer": "🧪",
-    "tldr": "✂️",
 }
 
-# last-event-kind -> short activity label for an active agent
+# last-event-kind -> short activity label for an active agent (plain text, no emoji)
 _ACTIVITY = {
-    "thinking": "💭 thinking…",
-    "tool_use": "🔧 running tool…",
-    "tool_result": "⏳ got result…",
-    "text": "📣 writing…",
-    "prompt": "… briefed",
+    "thinking": "thinking…",
+    "tool_use": "running tool…",
+    "tool_result": "got result…",
+    "text": "writing…",
+    "prompt": "briefed",
 }
 
 
 def role_emoji(role):
-    return ROLE_EMOJI.get(role or "", "🔹")
+    """Emoji for a role, or '' for the roles we render as plain text (everything but angel/devil)."""
+    return ROLE_EMOJI.get(role or "", "")
 
 
 def activity_label(last_kind):
     return _ACTIVITY.get(last_kind or "", "…")
+
+
+def sec_head(kind):
+    """Plain-text detail/dump section header ('thinking' / 'output' / 'tool')."""
+    return {"thinking": "thinking", "output": "output", "tool": "tool"}.get(kind, kind)
 
 
 # --- session / file discovery ------------------------------------------------
@@ -400,19 +398,19 @@ def render_dump(agents):
     lines = []
     for a in agents:
         role = a.get("role")
-        lines.append(f"{role_emoji(role)} {role or '(unknown)'}  ({a.get('model') or '?'})")
+        lines.append(f"{role_emoji(role)} {role or '(unknown)'}  ({a.get('model') or '?'})".lstrip())
         for e in a.get("events", []):
             k = e.get("kind")
             if k == "thinking":
-                lines.append("  💭 thinking")
+                lines.append(f"  {sec_head('thinking')}")
                 for ln in (e.get("text") or "").splitlines():
                     lines.append(f"     {strip_inline_md(ln)}")
             elif k == "text":
-                lines.append("  📣 output")
+                lines.append(f"  {sec_head('output')}")
                 for ln in (e.get("text") or "").splitlines():
                     lines.append(f"     {strip_inline_md(ln)}")
             elif k == "tool_use":
-                lines.append(f"  🔧 {e.get('name', '')}  {short_tool_input(e.get('input'))}")
+                lines.append(f"  {e.get('name', '')}  {short_tool_input(e.get('input'))}")
             elif k == "tool_result":
                 snippet = " ".join((e.get("text") or "").split())[:120]
                 lines.append(f"     ↳ {snippet}")

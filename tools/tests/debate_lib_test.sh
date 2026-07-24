@@ -216,6 +216,23 @@ assert dl.classify_line('> quoted')[:2] == ('quote','quoted')
 assert dl.classify_line('\`\`\`python')[0] == 'fence'
 assert dl.classify_line('plain text')[:2] == ('normal','plain text')
 "
+	pyt "only angel/devil carry an emoji; all other chrome is plain text" "
+import debate_lib as dl
+assert dl.role_emoji('angel') == '😇' and dl.role_emoji('devil') == '😈'
+# every other role, and unknown roles, render with no glyph
+for r in ('verifier','red-teamer','interpreter','researcher','profiler','historian',
+          'scribe','test-writer','tldr','arbiter','nonesuch'):
+    assert dl.role_emoji(r) == '', (r, dl.role_emoji(r))
+# section headers + activity labels are plain (no emoji code points)
+assert dl.sec_head('thinking') == 'thinking' and dl.sec_head('tool') == 'tool'
+def has_emoji(s): return any(ord(c) >= 0x1F000 or 0x2600 <= ord(c) <= 0x27BF or 0xFE00 <= ord(c) <= 0xFE0F for c in s)
+assert not has_emoji(dl.activity_label('thinking'))
+# a devil dump shows 😈 but no other chrome emoji (thinking/output/tool markers gone)
+agents=[{'role':'devil','model':'m','events':[{'kind':'thinking','text':'x'},{'kind':'tool_use','name':'Bash','input':{}}]}]
+dump = dl.render_dump(agents)
+assert '😈' in dump
+assert '💭' not in dump and '🔧' not in dump and '📣' not in dump, repr(dump)
+"
 	pyt "strip_inline_md removes all inline markers" "
 import debate_lib as dl
 assert dl.strip_inline_md('**DEALBREAKER**: the \`fn\` breaks') == 'DEALBREAKER: the fn breaks'

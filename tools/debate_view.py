@@ -111,11 +111,11 @@ def _detail_rows(agent, width):
     for e in agent["events"]:
         k = e["kind"]
         if k == "thinking":
-            rows.append([("💭 thinking", "think")]); para(e.get("text"), 3)
+            rows.append([(dl.sec_head("thinking"), "think")]); para(e.get("text"), 3)
         elif k == "text":
-            rows.append([("📣 output", "label")]); para(e.get("text"), 3)
+            rows.append([(dl.sec_head("output"), "label")]); para(e.get("text"), 3)
         elif k == "tool_use":
-            rows.append([(f"🔧 {e.get('name', '')} ", "tool"),
+            rows.append([(f"{e.get('name', '')} ", "tool"),
                          (dl.short_tool_input(e.get("input")), "dim")])
         elif k == "tool_result":
             snippet = " ".join((e.get("text") or "").split())
@@ -219,8 +219,10 @@ def _draw_roster(win, ordered, focus, roster_top, top_y, roster_h, attrs, maxx, 
             (f"[{a['model'] or '?'}] ", "dim"),
             (f"{dot} ", st_key),
             (f"{act:<12}", st_key),
-            (f" {dl.role_emoji(a['role'])}", "plain"),                 # emoji LAST: width can't misalign
         ]
+        em = dl.role_emoji(a["role"])                                   # only angel/devil; LAST so
+        if em:                                                         # its width can't misalign
+            row.append((f" {em}", "plain"))
         _render_row(win, top_y + row_i, 0, row, attrs, maxx)
 
 
@@ -276,7 +278,7 @@ def run_live(stdscr, subagents_dir, label):
         n = len(ordered)
 
         pos = f"{focus + 1}/{n}" if n else "0/0"
-        title = f" ⚖️  Angel's Advocate · {label} · {pos} agent(s) "
+        title = f" Angel's Advocate · {label} · {pos} agent(s) "
         _safe_addstr(stdscr, 0, 0, title.ljust(maxx - 1)[: maxx - 1], attrs["bar"])
 
         if not n:
@@ -296,7 +298,9 @@ def run_live(stdscr, subagents_dir, label):
             sep_y = 1 + roster_h
             _safe_addstr(stdscr, sep_y, 0, "─" * (maxx - 1), attrs["dim"])
             a = ordered[focus]
-            hdr = f" {dl.role_emoji(a['role'])} {a['role'] or '?'} — {a['model'] or '?'} "
+            em = dl.role_emoji(a["role"])
+            hg = f"{em} " if em else ""
+            hdr = f" {hg}{a['role'] or '?'} — {a['model'] or '?'} "
             _safe_addstr(stdscr, sep_y + 1, 0, hdr.ljust(maxx - 1)[: maxx - 1], attrs["hdr"])
 
             body_top = sep_y + 2
