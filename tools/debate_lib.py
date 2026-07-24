@@ -32,12 +32,21 @@ import os
 import re
 import time
 
-# Only angel and devil keep an emoji glyph; every other role renders as plain text. The other
-# glyphs (esp. variation-selector ones like 🛡️ ⚖️ ✂️) rendered at inconsistent widths across
-# terminals, so we omit them. 😇/😈 are single code points (no selector) and width-safe.
+# Role -> emoji for the roster/detail. red-teamer is intentionally omitted (renders as plain
+# text): its 🛡️ glyph carries a U+FE0F selector that misaligned the column on real terminals.
+# Roles not listed here render with no glyph.
 ROLE_EMOJI = {
     "angel": "😇",
     "devil": "😈",
+    "arbiter": "⚖️",
+    "verifier": "✅",
+    "researcher": "🔎",
+    "interpreter": "🧭",
+    "profiler": "📊",
+    "historian": "📚",
+    "scribe": "📝",
+    "test-writer": "🧪",
+    "tldr": "✂️",
 }
 
 # last-event-kind -> short activity label for an active agent (plain text, no emoji)

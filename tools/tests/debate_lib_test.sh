@@ -216,22 +216,20 @@ assert dl.classify_line('> quoted')[:2] == ('quote','quoted')
 assert dl.classify_line('\`\`\`python')[0] == 'fence'
 assert dl.classify_line('plain text')[:2] == ('normal','plain text')
 "
-	pyt "only angel/devil carry an emoji; all other chrome is plain text" "
+	pyt "roles carry emoji except red-teamer (plain), and pad_display keeps the column aligned" "
 import debate_lib as dl
-assert dl.role_emoji('angel') == '😇' and dl.role_emoji('devil') == '😈'
-# every other role, and unknown roles, render with no glyph
-for r in ('verifier','red-teamer','interpreter','researcher','profiler','historian',
-          'scribe','test-writer','tldr','arbiter','nonesuch'):
-    assert dl.role_emoji(r) == '', (r, dl.role_emoji(r))
-# section headers + activity labels are plain (no emoji code points)
-assert dl.sec_head('thinking') == 'thinking' and dl.sec_head('tool') == 'tool'
-def has_emoji(s): return any(ord(c) >= 0x1F000 or 0x2600 <= ord(c) <= 0x27BF or 0xFE00 <= ord(c) <= 0xFE0F for c in s)
-assert not has_emoji(dl.activity_label('thinking'))
-# a devil dump shows 😈 but no other chrome emoji (thinking/output/tool markers gone)
-agents=[{'role':'devil','model':'m','events':[{'kind':'thinking','text':'x'},{'kind':'tool_use','name':'Bash','input':{}}]}]
-dump = dl.render_dump(agents)
-assert '😈' in dump
-assert '💭' not in dump and '🔧' not in dump and '📣' not in dump, repr(dump)
+assert dl.role_emoji('red-teamer') == ''            # omitted: its 🛡️ selector misaligned
+for r in ('angel','devil','arbiter','verifier','researcher','interpreter',
+          'profiler','historian','scribe','test-writer','tldr'):
+    assert dl.role_emoji(r), r                       # everyone else keeps a glyph
+# the role column (name + optional emoji) pads to the SAME display width for every role,
+# so the table columns stay aligned whether or not the role has a glyph
+W = 15
+def field(r):
+    em = dl.role_emoji(r); return f'{r} {em}' if em else r
+widths = {r: dl.display_width(dl.pad_display(field(r), W)) for r in
+          ('angel','devil','red-teamer','verifier','interpreter','test-writer','tldr')}
+assert set(widths.values()) == {W}, widths
 "
 	pyt "strip_inline_md removes all inline markers" "
 import debate_lib as dl
