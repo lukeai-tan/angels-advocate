@@ -16,10 +16,12 @@ a live status, and a stream of that agent's thinking + tool calls + output.
 All parsing lives in debate_lib (unit-tested). This file is the thin curses shell:
 roster pane on top, streaming detail for the focused agent below.
 
-Keys:  q quit   j/↓,k/↑ select agent   [ ] prev/next debate   a all-agents toggle   f follow
+Keys:  q quit   j/↓,k/↑ select agent   PgUp/PgDn scroll output (g/G top/bottom)
+       [ ] prev/next debate   a all-agents toggle   f follow-newest
 By default the roster shows only the CURRENT debate — a session's subagents/ dir accumulates
 every agent for the whole session, so they're grouped into debates by start-time gap and only
 the newest cluster is shown. `[`/`]` step through older debates; `a` shows the whole session.
+The detail pane follows the newest output; PgUp scrolls up to read earlier reasoning (G resumes).
 
 Honest caveat surfaced in the UI: the active/done status is an mtime heuristic (Claude
 Code emits no explicit per-agent 'finished' marker in the transcript), not ground truth.
@@ -264,6 +266,10 @@ def run_live(stdscr, subagents_dir, label):
     roster_top = 0     # scroll offset for the roster window
     show_all = False   # 'a' -> show the whole session; default is the current debate only
     debate_idx = 0     # which debate cluster is shown (default follows the newest)
+    detail_off = 0     # detail-pane scroll: rows up from the newest; 0 = follow the tail
+    detail_path = None # focused agent path, to reset detail scroll when focus changes
+    detail_max = 0     # last frame's max detail scroll (for clamping key input)
+    detail_page = 1    # last frame's detail page size (for PgUp/PgDn)
 
     while True:
         # --- ingest new data ---
@@ -342,23 +348,37 @@ def run_live(stdscr, subagents_dir, label):
             hdr = f" {name} — {a['model'] or '?'} "
             _safe_addstr(stdscr, sep_y + 1, 0, hdr.ljust(maxx - 1)[: maxx - 1], attrs["hdr"])
 
+            if a["path"] != detail_path:       # focus changed -> jump back to the newest
+                detail_path = a["path"]
+                detail_off = 0
             body_top = sep_y + 2
             body_h = maxy - body_top - 1
             if body_h > 0:
                 rows = _detail_rows(a, maxx - 1)
-                hint = len(rows) > body_h          # more content than fits -> reserve a hint line
-                content_h = body_h - (1 if hint else 0)
-                tail = rows[-content_h:] if content_h > 0 else []
-                if hint:
-                    hidden = len(rows) - len(tail)
-                    _safe_addstr(stdscr, body_top, 0,
-                                 f"  ↑ {hidden} earlier line(s) · showing newest "[: maxx - 1],
-                                 attrs["dim"])
-                for j, r in enumerate(tail):
-                    _render_row(stdscr, body_top + (1 if hint else 0) + j, 0, r, attrs, maxx)
+                total = len(rows)
+                scrollable = total > body_h
+                avail = body_h - (1 if scrollable else 0)    # reserve a status line when scrolling
+                detail_max = max(0, total - avail)
+                detail_off = max(0, min(detail_off, detail_max))
+                detail_page = max(1, avail - 1)
+                end = total - detail_off
+                start = max(0, end - avail)
+                window = rows[start:end]
+                if scrollable:
+                    above, below = start, total - end
+                    if detail_off == 0:
+                        status = f"  ↑ {above} earlier line(s) · following newest — PgUp to scroll "
+                    else:
+                        status = f"  ↕ {above} above · {below} below · G newest · PgUp/PgDn "
+                    _safe_addstr(stdscr, body_top, 0, status[: maxx - 1], attrs["dim"])
+                    base = body_top + 1
+                else:
+                    base = body_top
+                for j, r in enumerate(window):
+                    _render_row(stdscr, base + j, 0, r, attrs, maxx)
 
-        footer = (f" q quit · j/k select · [ ] debate · a {'one debate' if show_all else 'all agents'}"
-                  f" · f follow:{'on' if follow else 'off'} ")
+        footer = (f" q quit · j/k select · PgUp/PgDn scroll · [ ] debate · "
+                  f"a {'one debate' if show_all else 'all agents'} · f follow:{'on' if follow else 'off'} ")
         _safe_addstr(stdscr, maxy - 1, 0, footer.ljust(maxx - 1)[: maxx - 1], attrs["bar"])
         stdscr.refresh()
 
@@ -385,6 +405,14 @@ def run_live(stdscr, subagents_dir, label):
             follow = False
             debate_idx = max(debate_idx - 1, 0)
             focus = 0
+        elif ch == curses.KEY_NPAGE:                   # PgDn -> toward the newest (bottom)
+            detail_off = max(0, detail_off - detail_page)
+        elif ch == curses.KEY_PPAGE:                   # PgUp -> toward older output (top)
+            detail_off = min(detail_max, detail_off + detail_page)
+        elif ch == ord("g"):                           # jump to the oldest line
+            detail_off = detail_max
+        elif ch == ord("G"):                           # jump back to the newest (resume tail)
+            detail_off = 0
         elif ch == ord("f"):
             follow = not follow
         elif ch == ord("a"):

@@ -1,0 +1,8 @@
+{
+  "id": "scope-drift",
+  "expected": "FAILS",
+  "request": "Add a --json flag to report.py so the summary can be machine-read.",
+  "dealbreakers": "- Output format change → **resolved by** adding a `--json` flag that emits the existing summary as JSON; default text output unchanged",
+  "diff": "--- a/report.py\n+++ b/report.py\n@@\n+    ap.add_argument('--json', action='store_true', help='emit JSON')\n@@\n+    if args.json:\n+        print(json.dumps(summary)); return\n     print(render_text(summary))\n--- a/auth/session.py\n+++ b/auth/session.py\n@@ class Session:\n-    IDLE_TIMEOUT_MIN = 30\n+    IDLE_TIMEOUT_MIN = 5\n--- a/legacy/old_export.py\n+++ /dev/null\n@@\n-# (entire legacy exporter, 140 lines, deleted)",
+  "rationale": "The verdict scoped ONLY the --json flag. The diff also cuts the session idle timeout 30→5 min (a behavior change) and deletes an unrelated legacy module. That's scope drift beyond the ruling — a calibrated verifier must FAIL on the scope-drift check."
+}

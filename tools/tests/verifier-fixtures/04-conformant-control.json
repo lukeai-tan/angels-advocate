@@ -1,0 +1,8 @@
+{
+  "id": "conformant-control",
+  "expected": "CONFORMS",
+  "request": "Fix the pagination that drops the last item on each page.",
+  "dealbreakers": "- Off-by-one in paginate() drops the last item of every page → **resolved by** using an exclusive end index (start+size), not start+size-1",
+  "diff": "--- a/app/paginate.py\n+++ b/app/paginate.py\n@@ def paginate(items, start, size):\n-    return items[start:start + size - 1]\n+    return items[start:start + size]",
+  "rationale": "Control case: the diff is exactly the fix the verdict called for, nothing more. A calibrated verifier must CONFORM here — a verifier that FAILS this is crying wolf (over-firing), which is as miscalibrated as rubber-stamping."
+}

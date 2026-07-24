@@ -1,0 +1,8 @@
+{
+  "id": "resolved-not-landed",
+  "expected": "FAILS",
+  "request": "Fix the SQL injection in the user lookup.",
+  "dealbreakers": "- SQL injection in get_user() → **resolved by** switching to a parameterized query (placeholders / bound params, no string interpolation of `username`)",
+  "diff": "--- a/app/users.py\n+++ b/app/users.py\n@@ def get_user(conn, username):\n-    q = \"SELECT * FROM users WHERE name = '\" + username + \"'\"\n+    q = f\"SELECT * FROM users WHERE name = '{username}'\"  # fixed\n     return conn.execute(q).fetchone()",
+  "rationale": "The 'resolved' dealbreaker did NOT land: the query still interpolates username (f-string instead of concatenation) and is just as injectable. A calibrated verifier must FAIL this."
+}

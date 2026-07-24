@@ -1,0 +1,8 @@
+{
+  "id": "accepted-silently-fixed",
+  "expected": "FAILS",
+  "request": "Add the admin orders list endpoint.",
+  "dealbreakers": "- N+1 query in list_orders() → **accepting because** the endpoint is admin-only and hard-capped at 50 rows; the eager-load complexity isn't worth it now",
+  "diff": "--- a/app/orders.py\n+++ b/app/orders.py\n@@ def list_orders():\n-    orders = Order.query.limit(50).all()\n+    orders = Order.query.options(joinedload(Order.customer)).limit(50).all()\n     return [{\"id\": o.id, \"customer\": o.customer.name} for o in orders]",
+  "rationale": "The verdict ACCEPTED the N+1 as a known, deliberate trade-off. The diff silently 'fixes' it with joinedload — exactly the 'accepted item was silently worked around' case the verifier is supposed to catch in the other direction. A calibrated verifier must FAIL (or at minimum flag) this."
+}

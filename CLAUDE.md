@@ -338,6 +338,15 @@ truly leaves no cross-family model available. The re-spawn mechanism is verified
 with the `haiku` override runs on `claude-haiku-4-5`, confirmed in-transcript and by
 `--check-independence`.
 
+**Is the verifier actually catching things? — `tools/verifier-calibration.sh`.** A verifier that
+always says CONFORMS is worse than none (it launders theater). This harness holds checked-in
+fixtures — known-bad `(verdict, diff)` pairs it MUST fail (a "resolved" item that never landed, an
+"accepted" risk silently worked around, scope drift) plus a clean control it MUST conform — and
+scores the verifier's verdicts. Run it occasionally to prove the verifier isn't rubber-stamping:
+`list` shows the cases, spawn the `verifier` on each `prompt <id>`, then `score <results.jsonl>`
+(exit 1 if it stamped a known-bad, or cried wolf on the control). Last run: 4/4, caught 3/3
+known-bad. Add a fixture whenever a real miss slips through.
+
 Closing line (append after acting, when a verification pass ran):
 ```
 ✅ Verified — <CONFORMS | FAILS: {n} item(s)>  ·  <one line: what was checked, what the pass can't catch>
@@ -381,6 +390,11 @@ itself); omit it for advisory/light decisions. Full token totals across all sess
 - **Don't log** trivial ungated work (the gate's "just act" cases) — that's noise.
 - **Honest caveat:** this is model-driven best-effort logging, not a guaranteed hook — it's only as
   reliable as you remembering to call it here. The journal is `.angel-advoc/journal.jsonl` (gitignored).
+- **Catch the misses after the fact — `tools/gate-sweep.sh`.** Since the journal only records what
+  *did* fire, this scans recent git commits, scores each for gate-worthiness (multi-file,
+  irreversible/schema, dependency, infra, large churn), and flags gate-worthy commits with **no
+  journal entry nearby** as candidate under-fires. It's the counterpart to `journal-report.sh --audit`
+  (which audits what was logged); run it periodically to surface reviews that should have happened.
 
 ---
 
