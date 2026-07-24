@@ -102,6 +102,23 @@ The `angel` and `devil` subagents register on startup — if you edit them mid-s
 reload. Then just work: the gate stays quiet on small stuff and convenes the debate when a decision
 earns it.
 
+### Install it elsewhere — `install.sh`
+
+To use the workflow in other projects, run the installer:
+
+```
+./install.sh --global              # into ~/.claude — loads in EVERY repo
+./install.sh --repo /path/to/repo  # self-contained copy into ONE repo (commit it with the code)
+./install.sh --repo <path> --dry-run   # preview, change nothing
+```
+
+It copies the agents, commands, and `tools/`, **merges** the spawn-depth env into `settings.json`
+(your keys preserved), and injects the Arbiter instructions into `CLAUDE.md` between managed
+markers — so re-running replaces just that block and never touches your surrounding content.
+Global mode also rewrites `tools/…` references to `~/.claude/tools/` so they resolve anywhere.
+It never copies your `.angel-advoc/` journal. After installing, verify cross-model independence
+for your Arbiter model: `tools/preflight.sh <your-model>` (e.g. `claude-opus-4-8`).
+
 ### Summon it anywhere — the `/angel-advoc` command
 
 The always-on gate only works *inside this repo*, where `CLAUDE.md` loads. To force the two-sided

@@ -28,8 +28,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-JOURNAL="${ANGEL_ADVOC_JOURNAL:-$REPO_ROOT/.angel-advoc/journal.jsonl}"
+# Same journal resolution as journal.sh: $ANGEL_ADVOC_JOURNAL, else the working repo (git),
+# else this script's own repo — so a global install reads the current project's journal.
+if [ -n "${ANGEL_ADVOC_JOURNAL:-}" ]; then
+	JOURNAL="$ANGEL_ADVOC_JOURNAL"
+else
+	ROOT="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
+	[ -n "$ROOT" ] || ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+	JOURNAL="$ROOT/.angel-advoc/journal.jsonl"
+fi
 PY="${PYTHON_BIN:-python3}"
 
 command -v "$PY" >/dev/null 2>&1 || { echo "journal-report.sh: python3 not found (set PYTHON_BIN)." >&2; exit 1; }
