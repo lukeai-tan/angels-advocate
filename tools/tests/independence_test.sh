@@ -89,6 +89,37 @@ r = dl.check_independence(agents, arbiter_model='claude-opus-4-8')
 assert r['status']=='nothing-to-check', r
 "
 
+# (5b) family-aware compare: same tier, DIFFERENT dated suffix -> still a collapse.
+#      This is the latent bug the fork debate reproduced — an exact-string compare would
+#      false-pass claude-sonnet-4-5-20250929 vs claude-sonnet-4-5-20250930 as "differs".
+pyt "check_independence: same family, different dated suffix -> collapse (not a false pass)" "
+import debate_lib as dl
+agents = [{'role':'devil','model':'claude-sonnet-4-5-20250929'}]
+r = dl.check_independence(agents, arbiter_model='claude-sonnet-4-5-20250930')
+assert r['status']=='collapse', r
+assert r['findings'][0]['collapsed'] is True, r
+"
+
+# (5c) family-aware compare: Haiku fallback vs Opus Arbiter -> genuinely differs (the
+#      reactive-respawn escape hatch must still read as independent)
+pyt "check_independence: haiku (dated) vs opus Arbiter -> ok (respawn escape hatch holds)" "
+import debate_lib as dl
+agents = [{'role':'verifier','model':'claude-haiku-4-5-20251001'}]
+r = dl.check_independence(agents, arbiter_model='claude-opus-4-8')
+assert r['status']=='ok', r
+"
+
+# (5d) model_family normalization + unknown-model fallback (never a false match)
+pyt "model_family: tiers normalize; unknown ids fall back to exact string" "
+import debate_lib as dl
+assert dl.model_family('claude-sonnet-4-5-20250929')=='sonnet'
+assert dl.model_family('claude-opus-4-8')=='opus'
+assert dl.model_family('claude-haiku-4-5-20251001')=='haiku'
+assert dl.model_family('some-future-model-x')=='some-future-model-x'
+assert not dl.same_model('some-future-model-x','another-model-y')
+assert dl.same_model('claude-sonnet-4-5','claude-sonnet-4-5-20250929')
+"
+
 # (6) render marks the collapsed role and warns
 pyt "render_independence: collapse output names the role and warns of self-check" "
 import debate_lib as dl
@@ -136,6 +167,12 @@ if [ "$rc" = "0" ]; then pass "preflight: alias 'opus' resolves like concrete id
 D2="$WORKDIR/agents_inherit"; mk_agents "$D2" devil=inherit verifier=sonnet red-teamer=sonnet interpreter=sonnet
 rc="$(run_pf "$D2" claude-opus-4-8)"
 if [ "$rc" = "1" ] && grep -q "devil" "$WORKDIR/pf.out"; then pass "preflight: a cross-model role set to inherit -> collapse"; else fail "preflight: inherit collapse" "rc=$rc $(cat "$WORKDIR/pf.out")"; fi
+
+# (10b) family-aware: Arbiter given as a DATED sonnet id vs roles declaring the `sonnet`
+#       alias (resolves to bare claude-sonnet-4-5) -> same family -> collapse. An exact-string
+#       compare would have false-passed this; the family compare must catch it.
+rc="$(run_pf "$D1" claude-sonnet-4-5-20250929)"
+if [ "$rc" = "1" ] && grep -q "COLLAPSE" "$WORKDIR/pf.out"; then pass "preflight: dated-sonnet Arbiter vs sonnet-alias roles -> exit 1 (family compare)"; else fail "preflight: family suffix case" "rc=$rc $(cat "$WORKDIR/pf.out")"; fi
 
 # (11) fail-closed: no Arbiter model arg AND no $ANTHROPIC_MODEL -> exit 2
 rc="$(AGENTS_DIR_OVERRIDE="$D1" ANTHROPIC_MODEL="" bash "$PREFLIGHT" >"$WORKDIR/pf.out" 2>&1; echo $?)"

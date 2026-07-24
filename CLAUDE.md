@@ -139,6 +139,12 @@ they catch *different* halves of the collapse:
   eyeballed roster — decide whether the ✅/🔎 line may say "independent." The preflight is an early
   warning, **never** a substitute for this post-hoc check.
 
+Both checks compare by model **family** (opus/sonnet/haiku), not raw id, so two agents on the same
+tier read as a collapse even when their dated snapshot suffixes differ (`claude-sonnet-4-5-20250929`
+vs `-20250930`) — an exact-string compare would false-pass that. On a *detected* fallback collapse,
+don't just report it: climb the **reactive-respawn ladder** in the verification section (re-spawn the
+verifier on a different-family model before conceding a same-model self-check).
+
 **Spawn them in parallel for the first round** (independence — they can't anchor on each other),
 then run **one cross-examination round**: feed each the other's output and let the Devil attack the
 Angel's *actual argument*, and the Angel rebut the Devil's *actual* dealbreakers. Then synthesize.
@@ -310,6 +316,27 @@ that model was unavailable and Claude Code fell back to the inherited one — it
 pure same-model self-check. In that case never let a "CONFORMS" masquerade as "independently proven
 correct": label it a self-check, exactly as you would the debate's rigor, and note the same-model
 collapse in the ✅ line.
+
+**Recover real independence before conceding it — the reactive-respawn ladder.** The
+availability-fallback collapse (Sonnet momentarily unreachable → the verifier silently ran on the
+Arbiter's Opus) is *recoverable*, not just reportable. When you'd otherwise write the same-model
+label, first try to restore genuine independence:
+1. After the verification pass, run `tools/debate-view.sh --check-independence`. If it reports the
+   verifier **collapsed** to the Arbiter's model (family-aware; a dated-suffix twin still counts)…
+2. …**re-spawn the verifier with an explicit different-family model** — pass `haiku` as the spawn
+   model override (this takes precedence over `verifier.md`'s `model:` and is a *different family*
+   than an Opus Arbiter, so independence is genuinely restored). Re-running the verifier loses
+   nothing: it's a fresh post-hoc pass whose inputs (verdict Dealbreakers, diff, verbatim request)
+   fully reconstruct — unlike an advocate mid-debate, which *would* lose its cross-examination context,
+   so **do not** reactively re-spawn advocates this way; for those, relabel or let the user re-run.
+3. Only if Haiku is *also* unavailable, fall back to the honest same-model label above. Note in the
+   ✅ line that the verifier ran on the Haiku fallback (a weaker reviewer, but genuinely independent).
+
+This ladder — Sonnet → Haiku → honest relabel — preserves the load-bearing independence property in
+the common collapse case at the cost of one cheap re-spawn, and concedes it only when the platform
+truly leaves no cross-family model available. The re-spawn mechanism is verified: a verifier spawned
+with the `haiku` override runs on `claude-haiku-4-5`, confirmed in-transcript and by
+`--check-independence`.
 
 Closing line (append after acting, when a verification pass ran):
 ```

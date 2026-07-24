@@ -291,6 +291,31 @@ CROSS_MODEL_ROLES = ("devil", "verifier", "red-teamer", "interpreter")
 # on exactly the Arbiter's model, by definition).
 INHERIT_ROLES = ("angel", "historian", "profiler", "scribe", "researcher", "test-writer")
 
+# Known model families (tiers). Independence is about shared lineage/blind spots, and within
+# one vendor a tier IS the model — so two agents on the same tier are a collapse even if their
+# dated snapshot suffixes differ (e.g. claude-sonnet-4-5-20250929 vs -20250930). Comparing raw
+# IDs would miss that (a latent false "differs"); comparing families catches it.
+MODEL_FAMILIES = ("opus", "sonnet", "haiku")
+
+
+def model_family(model):
+    """Normalize a model id to its family/tier for independence comparison.
+    'claude-sonnet-4-5-20250929' -> 'sonnet'. An unrecognized id falls back to its own
+    lowercased string, so unknown models still compare exactly (never a false match)."""
+    if not model:
+        return model
+    lo = model.lower()
+    for fam in MODEL_FAMILIES:
+        if fam in lo:
+            return fam
+    return lo
+
+
+def same_model(a, b):
+    """True if two model ids are the same model for independence purposes — i.e. same family
+    (so dated-suffix variants of one tier count as identical), NOT just byte-equal strings."""
+    return bool(a) and bool(b) and model_family(a) == model_family(b)
+
 
 def infer_arbiter_model(agents):
     """Best-effort: the Arbiter's model, taken from any inherit-role agent present in the
@@ -336,7 +361,7 @@ def check_independence(agents, arbiter_model=None):
 
     collapsed_any = False
     for f in findings:
-        if f["model"] == arbiter_model:
+        if same_model(f["model"], arbiter_model):  # family-aware: catches dated-suffix twins
             f["collapsed"] = True
             collapsed_any = True
     return {"status": "collapse" if collapsed_any else "ok",

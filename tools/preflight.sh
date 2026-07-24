@@ -43,8 +43,23 @@ resolve() {
 	esac
 }
 
+# family <model-id>: normalize to tier (opus/sonnet/haiku) for the independence comparison.
+# Within one vendor a tier IS the model, so dated-suffix variants of a tier must compare equal
+# (comparing resolved strings would miss claude-sonnet-4-5 vs claude-sonnet-4-5-20250929). An
+# unrecognized id falls back to its own lowercased string, so unknown models never false-match.
+family() {
+	local lo; lo="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+	case "$lo" in
+		*opus*)  echo opus ;;
+		*sonnet*) echo sonnet ;;
+		*haiku*) echo haiku ;;
+		*)       echo "$lo" ;;
+	esac
+}
+
 arbiter_resolved="$(resolve "$arbiter_model")"
-echo "🔎 Preflight (static config only) — Arbiter model: $arbiter_model -> $arbiter_resolved"
+arbiter_family="$(family "$arbiter_resolved")"
+echo "🔎 Preflight (static config only) — Arbiter model: $arbiter_model -> $arbiter_resolved (family: $arbiter_family)"
 
 collapsed=0
 checked=0
@@ -64,11 +79,12 @@ for role in "${CROSS_MODEL_ROLES[@]}"; do
 	else
 		resolved="$(resolve "$declared")"
 	fi
-	if [ "$resolved" = "$arbiter_resolved" ]; then
-		echo "   ❌ $role — declares '$declared' -> $resolved  == Arbiter: COLLAPSE (same-model self-check)"
+	# Compare by FAMILY, not resolved string, so a same-tier dated-suffix twin still collapses.
+	if [ "$(family "$resolved")" = "$arbiter_family" ]; then
+		echo "   ❌ $role — declares '$declared' -> $resolved  == Arbiter family '$arbiter_family': COLLAPSE (same-model self-check)"
 		collapsed=$((collapsed + 1))
 	else
-		echo "   ✔ $role — declares '$declared' -> $resolved  differs from Arbiter: ok"
+		echo "   ✔ $role — declares '$declared' -> $resolved (family: $(family "$resolved"))  differs from Arbiter: ok"
 	fi
 done
 
