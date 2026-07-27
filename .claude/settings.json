@@ -1,7 +1,10 @@
 {
   "env": {
     "//": "Allows the investigator roles (researcher, test-writer) to spawn their own helper subagents for parallel legwork. Project-scoped on purpose (not ~/.claude) so the blast radius stays in this repo. Depth 2 = Arbiter -> investigator -> helper. Only agents with `Agent` in their tools: line can actually spawn; devil/verifier/angel deliberately omit it. See CLAUDE.md 'Nested spawning'.",
-    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2"
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2",
+    "//models": "Point the opus/sonnet aliases at the Claude 5 generation. Verified served on this gateway: claude-opus-5, claude-sonnet-5 (the dated Sonnet 4.5 deployment 404s here, so the bare `sonnet` alias could silently collapse). The cross-model roles pin claude-sonnet-5 explicitly in their agent files; these defaults upgrade any remaining alias use and make new sessions default to Opus 5. Loaded at session start -- run `/model claude-opus-5` to switch THIS session's arbiter (angel follows via `inherit`).",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5"
   },
   "hooks": {
     "//": "Auto-open the debate viewer in a separate Windows Terminal window when a subagent spawns. WSL-only (tools/debate-window.sh no-ops without wt.exe). The matcher covers both possible names for the subagent-spawning tool. The script self-guards so only one window opens per debate. Project-scoped on purpose; install.sh does not propagate this.",

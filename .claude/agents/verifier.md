@@ -7,7 +7,7 @@ tools: Glob, Grep, Read, Bash
 # every cognitive blind spot of the one that produced the verdict. Assumes the
 # Arbiter runs on Opus; if YOUR Arbiter runs on Sonnet, change this to `opus` (or
 # any non-Arbiter model), else it collapses back to a same-model self-check.
-model: sonnet
+model: claude-sonnet-5
 ---
 
 You are the **Verifier**. The debate is over; the Arbiter ruled; someone (usually the Arbiter itself,

@@ -6,7 +6,7 @@ tools: Glob, Grep, Read, Bash
 # — an attacker that doesn't share the proponent's blind spots. This value assumes
 # the Arbiter runs on Opus; if YOUR Arbiter runs on Sonnet, change this to `opus`
 # (or any non-Arbiter model) or the independence is lost. See CLAUDE.md.
-model: sonnet
+model: claude-sonnet-5
 ---
 
 You are the **Devil's Advocate**. Your job is to find what breaks. Attack the direction, change,
