@@ -51,6 +51,28 @@ r, strong = g.classify_commit(1, 3, 1, ['README.md'])
 assert r == [] and not strong, (r, strong)
 "
 
+pyt "classify_commit: adding a subagent role is gate-worthy despite being small" "
+import gate_sweep as g
+# The regression this pins: a new role is ~2 files / <100 lines, so the file-count and churn
+# heuristics scored it NOT gate-worthy at all -- the sweep flagged a cosmetic 3-file tweak
+# while three separate role-adding commits were invisible. In a repo whose architecture IS
+# markdown, path identity has to carry what size cannot.
+for path in ('.claude/agents/researcher.md', '.claude/workflows/sweep.js', '.claude/commands/x.md'):
+    r, strong = g.classify_commit(2, 73, 0, [path, 'CLAUDE.md'])
+    assert strong, (path, r, strong)
+    assert any('workflow definition' in x for x in r), (path, r)
+# CLAUDE.md alone counts too -- it IS the Arbiter's instructions
+r, strong = g.classify_commit(1, 8, 0, ['CLAUDE.md'])
+assert strong and any('workflow definition' in x for x in r), (r, strong)
+# ...but ordinary prose/code must NOT be swept in by the new category
+for path in ('README.md', 'tools/debate_lib.py', 'notes/claude-notes.txt'):
+    r, strong = g.classify_commit(1, 8, 0, [path])
+    assert not any('workflow definition' in x for x in r), (path, r)
+# genuinely risky categories still outrank it in the reason ordering
+r, _ = g.classify_commit(2, 10, 0, ['.claude/agents/x.md', 'db/migration_001.sql'])
+assert 'irreversible' in r[0], r
+"
+
 pyt "is_covered: journal entry inside/outside the window" "
 import gate_sweep as g
 import debate_lib as dl

@@ -69,6 +69,24 @@ blind spots. Label it as such. If, while writing the Devil's side, you surface a
 **dealbreaker** you can't dismiss, *escalate* to structural mode rather than talking yourself out
 of it. The bar to escalate is low: any live dealbreaker, any irreversible action, any genuine fork.
 
+**It is usually narration, not deliberation — know which you are doing.** A 2026-07-27 audit of this
+repo's own journal traced light-mode decisions in the transcript and found the 😈 block is typically
+composed *after* the investigation that found the problems and *after* the fix landed — the model
+discovers a trap while working, fixes it, then writes it up as though freshly caught. The
+fingerprint is quantitative: light mode **accepted** 12% of its dealbreakers versus 31% for
+structural debate, a 2.6x gap. That is what you would expect if light mode rarely produces the "I
+looked and chose NOT to fix" outcome that only a live adversary forces.
+
+So: a light self-check is an honest **pre-commit checklist and a record of careful engineering**. It
+is not an adversarial pass, and the 😈 glyph must not imply one. Two ways to keep it honest — pick
+one every time:
+- Write the Devil's side **before** you start editing, and let it change what you build; or
+- Write it after, and say so — "😈 (retrospective)" — so the record shows narration, not discovery.
+
+Do not let a retrospective write-up sit under the same label as a live debate. That is precisely the
+costume this file exists to forbid, and the audit found it worn in two-thirds of the repo's own
+gated decisions.
+
 ### 2. Structural debate (heavy / irreversible / forked decisions)
 Spawn the real subagents so they reason with independent context and tools:
 - `angel` — returns the steelman. Inherits the Arbiter's model (it advocates *for* the leaning
@@ -224,9 +242,15 @@ words after the marker change.
 ⚖️ **Verdict** — <the decision and reasoning>
 
 **Dealbreakers**
-- <name> → **resolved by** <how>   *(or)*   **accepting because** <why>
+- <name> → **resolved by** <how>  ·  **accepting because** <why>  ·  **refuted because** <evidence>
 - <one bullet per dealbreaker; if there were none, write a single line: "none raised">
 ```
+
+**Three dispositions, not two.** `refuted` exists because the Devil is sometimes simply *wrong*, and
+without a slot for that the ruling has to file a refutation as an "acceptance" — which reads as the
+Arbiter conceding a risk it actually disproved, and quietly corrupts the resolved/accepted ratio that
+`/journal` and `/gate-audit` report. Use `refuted` **only with evidence** (a reproduction, a
+measurement, a counter-example) — never as a polite way to wave off an attack you merely dislike.
 
 **Formatting rules (readability).**
 - Lead each speaker's block with its marker glyph (`🔎 😇 😈 ⚖️ ✅`), then bold the label (`😇 **Angel**`).
@@ -255,7 +279,7 @@ verdict that *picks* rather than merely proceeds.
 ⚖️ **Verdict** — <the option chosen + why it beats the others, not just why it's adequate>
 
 **Dealbreakers**
-- <name> → **resolved by** <how>   *(or)*   **accepting because** <why>   (none → "none raised")
+- <name> → **resolved by** <how> · **accepting because** <why> · **refuted because** <evidence>   (none → "none raised")
 
 **Runners-up** — <the best idea from a rejected option worth grafting onto the winner, if any>
 ```
@@ -367,8 +391,8 @@ gate's real risk — decisions that should have fired review but didn't.
 
 ```
 printf '%s' '{"gate":"<fork|structural|irreversible|assumption|wrong-problem|light|skip-noted>",
-  "rigor":"<light self-check|structural debate>","target":"<one line: what was decided>",
-  "verdict":"<one line: the ruling>","dealbreakers":[{"item":"...","disposition":"<resolved|accepted>","why":"..."}],
+  "rigor":"<light self-check|light self-check (retrospective)|structural debate>","target":"<one line: what was decided>",
+  "verdict":"<one line: the ruling>","dealbreakers":[{"item":"...","disposition":"<resolved|accepted|refuted>","why":"..."}],
   "verifier":"<CONFORMS|FAILS:{n}|n/a>"}' | tools/journal.sh
 ```
 (`verifier: "n/a"` when the verdict was advisory with no code written. The script adds the timestamp.)

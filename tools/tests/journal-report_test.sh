@@ -78,6 +78,26 @@ t_audit_counts() {
 }
 
 # ---------------------------------------------------------------------------
+# (2b) 'refuted' is its own bucket, not lumped into resolved/accepted/other.
+# A disproved Devil attack filed as "accepted" reads as the Arbiter conceding a risk it
+# actually killed — it inflates the accepted count and understates two-way adversarial health.
+# ---------------------------------------------------------------------------
+t_refuted_bucket() {
+	local jp; jp="$(fresh_journal)"
+	seed_line "$jp" '{"gate":"fork","rigor":"structural debate","verifier":"CONFORMS","dealbreakers":[{"item":"a","disposition":"refuted","why":"reproduced the opposite"},{"item":"b","disposition":"accepted"}]}'
+	seed_line "$jp" '{"gate":"light","rigor":"light self-check","verifier":"n/a","dealbreakers":[{"item":"c","disposition":"refuted because measured 3N+2, not 8N+5"}]}'
+	run_report "$jp" --audit
+	if [ "$RC" -ne 0 ]; then fail "refuted bucket: exit 0" "rc=$RC"; return; fi
+	# both spellings ('refuted' and 'refuted because ...') bucket by prefix
+	grep -Eq 'refuted[[:space:]]+2' <<<"$OUT" || { fail "audit: refuted==2" "$OUT"; return; }
+	# and they must NOT leak into the neighbouring buckets
+	grep -Eq 'accepted[[:space:]]+2' <<<"$OUT" && { fail "audit: refuted leaked into accepted" "$OUT"; return; }
+	grep -Eq 'resolved[[:space:]]+[1-9]' <<<"$OUT" && { fail "audit: refuted leaked into resolved" "$OUT"; return; }
+	grep -Eq 'other[[:space:]]+[1-9]' <<<"$OUT" && { fail "audit: refuted fell into 'other'" "$OUT"; return; }
+	pass "audit: 'refuted' counts as its own disposition, not resolved/accepted/other"
+}
+
+# ---------------------------------------------------------------------------
 # (3) FAILED-verification verdicts are surfaced by target
 # ---------------------------------------------------------------------------
 t_failed_surfaced() {
@@ -176,6 +196,7 @@ echo
 
 t_empty_ok
 t_audit_counts
+t_refuted_bucket
 t_failed_surfaced
 t_recurring
 t_skip_count

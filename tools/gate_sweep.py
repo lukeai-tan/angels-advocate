@@ -36,6 +36,14 @@ _DEP_FILES = {
 }
 _INFRA_HINTS = ("dockerfile", "docker-compose", ".github/workflows/", "makefile", ".tf")
 _IRREVERSIBLE_HINTS = ("migration", "migrate", "schema", ".sql")
+# Files that DEFINE the workflow: agent roles, the Arbiter's own instructions, workflow
+# scripts, slash commands. Adding a subagent role is textbook "introduces an abstraction /
+# sets a pattern others follow" by the gate's own definition, but it lands as ~2 files and
+# <100 lines — so the size-and-churn heuristics below score it as NOT gate-worthy at all.
+# That inverted the sweep: it flagged a cosmetic 3-file roster tweak while three separate
+# role-adding commits were invisible to it. In a repo whose architecture IS markdown, path
+# identity has to carry the signal that file count cannot.
+_ARCH_HINTS = (".claude/agents/", ".claude/workflows/", ".claude/commands/", "claude.md")
 
 
 def _risky_category(path):
@@ -48,6 +56,8 @@ def _risky_category(path):
         return "dependency change"
     if any(h in low for h in _INFRA_HINTS):
         return "infra/CI"
+    if any(h in low for h in _ARCH_HINTS):
+        return "workflow definition"
     return None
 
 
@@ -60,7 +70,7 @@ def classify_commit(n_files, adds, dels, paths, big_churn=200, many_files=3):
         c = _risky_category(p)
         if c:
             cats.setdefault(c, []).append(p)
-    for cat in ("irreversible/schema", "dependency change", "infra/CI"):
+    for cat in ("irreversible/schema", "dependency change", "infra/CI", "workflow definition"):
         ps = cats.get(cat)
         if ps:
             strong = True

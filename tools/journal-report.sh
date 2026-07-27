@@ -185,11 +185,16 @@ for e in entries:
         if not isinstance(d, dict):
             continue
         disp = str(g(d, "disposition", "?")).strip().lower()
-        # bucket disposition into resolved / accepted / unresolved / other by prefix
+        # bucket disposition into resolved / accepted / refuted / unresolved / other by prefix.
+        # 'refuted' is its own bucket on purpose: a disproved attack filed under "accepted"
+        # reads as the Arbiter conceding a risk it actually killed, which inflates the
+        # accepted count and understates how often the debate is adversarial in both directions.
         if disp.startswith("resolv"):
             disp_counts["resolved"] += 1
         elif disp.startswith("accept"):
             disp_counts["accepted"] += 1
+        elif disp.startswith("refut"):
+            disp_counts["refuted"] += 1
         elif disp.startswith("unresolv") or "incomplete" in disp or "re-run" in disp:
             disp_counts["unresolved"] += 1
         else:
