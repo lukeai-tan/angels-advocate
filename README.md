@@ -92,6 +92,7 @@ tools/
   journal.sh                    Append a gated decision to the journal
   journal-report.sh             Reader behind /journal and /gate-audit
   debate-view.sh / *.py         Watch subagents think/act/answer, live in the terminal
+  debate-window.sh              Auto-open the viewer in a separate window on spawn (WSL/wt.exe)
   tests/                        Regression suites (bash + python3, no framework)
 ```
 
@@ -164,6 +165,20 @@ view labels it as such.
 For a quick inline peek from *inside* a Claude Code session, `/debate-view` runs the one-shot dump and
 relays it — handy when you don't have a second terminal open. (The live, updating view still needs a
 real terminal, since a slash command can't host the curses UI.)
+
+**Auto-open the viewer in its own window (WSL).** `tools/debate-window.sh` pops the live viewer in a
+**separate Windows Terminal window** so you never have to remember to open a second terminal. Two ways
+to trigger it:
+
+- **Automatic** — wired as a `PreToolUse` hook in `.claude/settings.json`, it fires the moment a
+  subagent spawns. It self-guards (atomic lock + `pgrep`) so exactly one window opens per debate and
+  an already-open viewer is reused. (Note: Claude Code loads `settings.json` at session start, so the
+  hook takes effect on the next session.)
+- **On demand** — `/debate-window` (or `tools/debate-window.sh --force`) opens it whenever you want,
+  skipping the debounce lock the hook uses.
+
+Either way it no-ops cleanly on any host without `wt.exe`. It's WSL-specific and project-scoped on
+purpose, so `install.sh` does **not** propagate it.
 
 ## Design note
 
