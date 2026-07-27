@@ -171,7 +171,27 @@ so it tracks context re-reads and turn count more than how hard an agent worked 
 `tok billed` for this reason), and because the scale follows the live peak, a finished agent can cool
 as a still-running sibling overtakes it. That's how live monitors behave; the alternatives tested
 worse (an absolute scale washes small debates flat, and a monotonic ratchet ends up pinning several
-agents at max heat at once). `tools/debate-view.sh --once` prints
+agents at max heat at once).
+
+The rest of the roster: **IND** is a live independence badge — `√` a cross-model role genuinely on a
+different family than the Arbiter, `×` one that **collapsed** onto the Arbiter's family, `~` a role
+that inherits the Arbiter's model by design, `?` when the Arbiter's model can't be determined
+(fail-closed). It surfaces this repo's central invariant while the debate is still running instead of
+only in a separate `--check-independence` run. **TOOK** is each agent's wall-clock duration, and
+**COST** an *indicative* dollar estimate — list prices per model family, hardcoded, so treat it as
+orientation and not billing; an unpriced family shows `—` rather than a wrong number, and you can
+override the table with a `.angel-advoc/prices.json` of the same shape. Columns are shed
+cheapest-first as the terminal narrows (COST → TOOK → FACE → IND → STATUS), so the roster always fits
+instead of clipping whichever column happened to land last.
+
+Press **`t`** for a **timeline** — a Gantt of the shown debate that makes its shape legible: a
+parallel opening round lines up, a cross-examination steps right, and a still-running agent is drawn
+with a distinct glyph.
+
+In the detail pane, the advocates' own severity vocabulary is **colour-coded** — DEALBREAKER and
+FAILS in red, WORTH-NOTING and PARTIAL in amber, concessions and PASS in green, section headers
+(CASE FOR/AGAINST, STRONGEST GROUND, SCOPE DRIFT…) underlined — so you can skim a long transcript by
+seriousness instead of reading a uniform wall of prose. `tools/debate-view.sh --once` prints
 a one-shot dump instead of the live view (and is what runs automatically when there's no TTY). Agent
 "active/done" status is an mtime heuristic — Claude Code emits no explicit finished signal — and the
 view labels it as such.

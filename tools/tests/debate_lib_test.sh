@@ -383,6 +383,97 @@ assert dl.share_bar(200, 100, 5)=='█████'
 # sub-cell eighths keep near neighbours distinguishable
 assert dl.share_bar(153_400, 1_100_000, 5) != dl.share_bar(218_200, 1_100_000, 5)
 "
+	pyt "fmt_duration/fmt_cost: bounded width, incl. None and absurd magnitudes" "
+import debate_lib as dl
+assert dl.fmt_duration(42)=='42s' and dl.fmt_duration(202)=='3m22s'
+assert dl.fmt_duration(7385)=='2h03m' and dl.fmt_duration(None)=='—'
+bad=[(s,dl.fmt_duration(s)) for s in [None,0,1,59,60,61,3599,3600,86399,86400,10**7,10**12,-5]
+     if dl.display_width(dl.fmt_duration(s)) > dl.DUR_W]
+assert not bad, bad
+assert dl.fmt_cost(None)=='—' and dl.fmt_cost(0)=='\$0.00' and dl.fmt_cost(0.004)=='<\$0.01'
+bad=[(c,dl.fmt_cost(c)) for c in [None,0,1e-9,0.004,0.01,2.1449,999.994,999.999,1000,1234.5,1e6,1e12]
+     if dl.display_width(dl.fmt_cost(c)) > dl.COST_W]
+assert not bad, bad
+"
+	pyt "estimate_cost: prices by family, None for an unpriced model (never a wrong number)" "
+import debate_lib as dl
+u={'input':1_000_000,'output':0,'cache_read':0,'cache_create':0}
+assert dl.estimate_cost(u,'claude-opus-5')==15.0        # 1M input at opus rate
+assert dl.estimate_cost(u,'claude-sonnet-5')==3.0
+assert dl.estimate_cost(u,'claude-haiku-4-5')==1.0
+assert dl.estimate_cost(u,'some-other-llm') is None     # unpriced -> no guess
+assert dl.estimate_cost(None,'claude-opus-5')==0.0
+# an override table is honoured
+assert dl.estimate_cost(u,'claude-opus-5',{'opus':(1.0,1.0,1.0,1.0)})==1.0
+# cache tokens are priced separately, not at the input rate
+u2={'input':0,'output':0,'cache_read':1_000_000,'cache_create':0}
+assert dl.estimate_cost(u2,'claude-opus-5')==1.5
+"
+	pyt "independence_state: cross-model ok/collapse, inherit, and fail-closed unknown" "
+import debate_lib as dl
+S=dl.independence_state
+assert S('devil','claude-sonnet-5','claude-opus-5')=='ok'
+assert S('verifier','claude-opus-5','claude-opus-5')=='collapse'
+# family-aware: dated twins of one tier still count as a collapse
+assert S('devil','claude-sonnet-4-5-20250929','claude-sonnet-4-5-20250930')=='collapse'
+assert S('angel','claude-opus-5','claude-opus-5')=='inherit'
+assert S('devil','claude-sonnet-5',None)=='unknown'     # fail closed, never a false pass
+assert S('arbiter','claude-opus-5','claude-opus-5')=='n/a'
+# every badge glyph is width-1 so the narrow IND column stays flush ('✓' is width 2!)
+for st,(g,_k) in dl.IND_MARKS.items():
+    assert dl.display_width(g)==1, (st,g,dl.display_width(g))
+"
+	pyt "debate_line_style: severity vocabulary, and no false positives on prose" "
+import debate_lib as dl
+f=dl.debate_line_style
+assert f('- **DEALBREAKER (reproduced)** — x')=='db' and f('SHARPEST OBJECTION: y')=='db'
+assert f('- WORTH-NOTING — z')=='warn' and f('[PARTIAL — see note] q')=='warn'
+assert f('[PASS] item')=='ok' and f('HONEST CONCESSION: two')=='ok'
+assert f('OVERALL: CONFORMS — 1 item')=='ok'            # more specific rule wins over 'sect'
+assert f('CASE AGAINST:')=='sect' and f('SCOPE DRIFT: none')=='sect'
+assert f('OVERALL: things')=='sect'
+# prose must not trip it: mid-sentence mentions and lookalike words
+assert f('The dealbreaker was mentioned mid-sentence') is None
+assert f('Failed to parse the file') is None
+assert f('') is None and f(None) is None
+"
+	pyt "fit_roster_columns: sheds cosmetic columns first and always fits the terminal" "
+import debate_lib as dl
+prev=None
+for maxx in range(45,201):
+    cols=dl.fit_roster_columns(maxx)
+    keys=[c[0] for c in cols]
+    row=2+sum(c[2] for c in cols)+len(dl.COL_SEP)*(len(cols)-1)
+    # load-bearing columns are never dropped
+    for k in ('role','model','tokens'): assert k in keys, (maxx,keys)
+    if maxx>=60: assert row<=maxx-1, (maxx,row)      # fits, once there is room at all
+    # column count is monotone in width: widening never REMOVES a column
+    if prev is not None: assert len(keys)>=prev, (maxx,keys)
+    prev=len(keys)
+# drop order: cost goes before took, took before face, face before ind
+assert 'cost' in [c[0] for c in dl.fit_roster_columns(100)]
+assert 'cost' not in [c[0] for c in dl.fit_roster_columns(90)]
+assert 'took' not in [c[0] for c in dl.fit_roster_columns(80)]
+# MODEL absorbs the slack, and never drops below its floor
+for maxx in (60,80,120,200):
+    mw=[c[2] for c in dl.fit_roster_columns(maxx) if c[0]=='model'][0]
+    assert mw>=dl.MODEL_MIN_W, (maxx,mw)
+"
+	pyt "timeline_bar: exact width, always visible, clamped to the window" "
+import debate_lib as dl
+for w in (0,1,4,20,60):
+    for a,b in ((0,10),(5,5),(0,0),(9,10),(-5,50)):
+        s=dl.timeline_bar(a,b,0,10,w)
+        assert dl.display_width(s)==w, (w,a,b,s,dl.display_width(s))
+# a zero-length agent still paints one cell rather than vanishing
+assert dl.timeline_bar(5,5,0,10,10).count('█')==1
+# full span fills the strip; degenerate/None windows render blank but exact-width
+assert dl.timeline_bar(0,10,0,10,10)=='██████████'
+assert dl.timeline_bar(0,10,0,0,8)=='        '
+assert dl.timeline_bar(None,None,0,10,8)=='        '
+# a running agent is drawn with a distinct glyph
+assert set(dl.timeline_bar(0,10,0,10,4,running=True))=={'░'}
+"
 	pyt "strip_model_prefix: drops the constant 'claude-', leaves anything else alone" "
 import debate_lib as dl
 assert dl.strip_model_prefix('claude-sonnet-4-5-20250929')=='sonnet-4-5-20250929'
@@ -414,6 +505,355 @@ assert o['total_tokens']==2*3342, o
 " 2>/dev/null; then pass "token_report --json aggregates main + subagents"; else fail "token_report --json" "$out"; fi
 }
 
+# ---------------------------------------------------------------------------
+# (12) adversarial edges for the roster/timeline/cost/severity columns.
+#
+# This repo has shipped the SAME width bug twice (fmt_tokens(999_950) -> '1000.0k',
+# fmt_cost(999.999) -> '$1,000.00'): a `value < THRESHOLD` guard that ignored what .Nf
+# rounding does at the top of the range. These tests sweep every formatter across its unit
+# boundaries in both signs, pin the exact-width contract of every cell renderer under
+# degenerate inputs, fuzz the responsive layout, and cover the failure paths of the price
+# override, the fail-closed independence badge, and the severity classifier.
+# ---------------------------------------------------------------------------
+t_edges() {
+	pyt "fmt_duration: no third width-budget overflow — dense sweep of every unit boundary" "
+import debate_lib as dl
+# Same shape of function as fmt_tokens/fmt_cost, which each shipped a rounding-boundary
+# overflow. Sweep 0.01s resolution around every unit rollover, both signs, ints and floats.
+cases=[None,0,1,59,60,61,3599,3600,86399,86400,10**7,10**12,10**18,-5,-10**9]
+for base in (0,60,3600,86400,86400*99,86400*100):
+    x=float(base)-2.0
+    while x<=base+2.0:
+        cases.append(round(x,3)); x+=0.01
+cases+=[-c for c in cases if isinstance(c,(int,float))]
+bad=[(s,dl.fmt_duration(s),dl.display_width(dl.fmt_duration(s)))
+     for s in cases if dl.display_width(dl.fmt_duration(s))>dl.DUR_W]
+assert not bad, bad[:5]
+# It TRUNCATES rather than rounds, which is what keeps it safe where the other two were not:
+# 59.9s stays '59s' instead of becoming a 7-column '60.0s'. Pin that at every rollover.
+assert dl.fmt_duration(59.9)=='59s', dl.fmt_duration(59.9)
+assert dl.fmt_duration(3599.7)=='59m59s', dl.fmt_duration(3599.7)
+assert dl.fmt_duration(86399.9)=='23h59m', dl.fmt_duration(86399.9)
+assert dl.fmt_duration(99*86400+86399.9)=='99d23h'   # widest possible output, exactly DUR_W
+assert dl.fmt_duration(100*86400)=='99d+'            # beyond the format, stays bounded
+# non-finite / negative inputs degrade to a bounded string instead of a wide one or a raise
+assert dl.fmt_duration(float('nan'))=='0s' and dl.fmt_duration(-1)=='0s'
+"
+	pyt "fmt_cost: width holds across a 20k-sample fuzz, incl. the ,.2f -> ,.0f handoff" "
+import random, debate_lib as dl
+random.seed(7)
+cs=[None,0,-1,-1e9,1e-12,0.0049,0.005,0.0099,0.01,9.999,99.999,999.994,999.995,999.999,
+    1000,9999.994,9999.995,9999.999,10000,99999.4,99999.5,99999.994,100000,1e6,1e9,1e12,1e300]
+for base in (1,10,100,1000,10000,100000,1e6):
+    cs+=[base+d for d in (-0.011,-0.005,-0.001,0,0.001,0.005,0.011)]
+cs+=[random.uniform(0,200000) for _ in range(20000)]
+bad=[(c,dl.fmt_cost(c),dl.display_width(dl.fmt_cost(c)))
+     for c in cs if dl.display_width(dl.fmt_cost(c))>dl.COST_W]
+assert not bad, bad[:5]
+# each candidate is MEASURED, so the coarser form takes over exactly where the finer one
+# would overflow -- 9999.995 would render as a 10-column '\$10,000.00' under a naive threshold
+assert dl.fmt_cost(999.999)=='\$1,000', dl.fmt_cost(999.999)
+assert dl.fmt_cost(9999.995)=='\$10,000', dl.fmt_cost(9999.995)
+assert dl.fmt_cost(99999.4)=='\$99,999' and dl.fmt_cost(99999.5)=='\$99999+'
+assert dl.fmt_cost(-1)=='\$0.00'                     # a negative estimate never renders wide
+"
+	pyt "timeline_bar: exact width on degenerate windows, reversed spans, out-of-window agents" "
+import debate_lib as dl
+bad=[]
+ts=[None,-1e9,-5,0,1,5,9,10,11,1e9,1e12]
+windows=[(0,10),(10,0),(0,0),(5,5),(None,10),(0,None),(None,None),(-10,10),(1e9,1e9+1)]
+for w in (-10,-1,0,1,2,4,5,20,60,200):
+    for start in ts:
+        for end in ts:
+            for t0,t1 in windows:
+                for run in (False,True):
+                    s=dl.timeline_bar(start,end,t0,t1,w,run)
+                    if dl.display_width(s)!=max(0,w):
+                        bad.append((start,end,t0,t1,w,run,repr(s)))
+assert not bad, bad[:5]
+# a reversed window (t0>t1) and a zero-length window render blank but still EXACT width
+assert dl.timeline_bar(0,10,10,0,6)=='      '
+assert dl.timeline_bar(0,10,5,5,6)=='      '
+# start>end must not produce a negative run count or a short string
+assert dl.timeline_bar(10,0,0,10,10)=='         █'
+# an agent entirely outside the window is clamped to an edge cell, never dropped
+assert dl.timeline_bar(-100,-90,0,10,6)=='█     '
+assert dl.timeline_bar(100,200,0,10,6)=='     █'
+# a negative width degrades to empty rather than raising or producing junk
+assert dl.timeline_bar(0,10,0,10,-5)==''
+"
+	pyt "share_bar/tok_cell: exact width on negative, None, float and absurd values" "
+import debate_lib as dl
+bad=[]
+vals=[0,None,-1,-10**9,1,0.5,1e-9,999_949,999_950,10**12,10**18]
+peaks=[0,None,-1,1,1e-9,10**12]
+for v in vals:
+    for p in peaks:
+        for w in (-3,0,1,2,5,8,40):
+            b=dl.share_bar(v,p,w)
+            if dl.display_width(b)!=max(0,w): bad.append(('bar',v,p,w,repr(b)))
+        c=dl.tok_cell(v,p)
+        if dl.display_width(c)!=dl.TOK_CELL_W: bad.append(('cell',v,p,repr(c)))
+assert not bad, bad[:5]
+# a non-numeric value must not raise -- it reads as empty, not as a ragged cell
+assert dl.display_width(dl.share_bar('abc',100,5))==5
+# a narrower cell clips the COUNT (never the bar) and still lands on the exact width
+assert dl.display_width(dl.tok_cell(999_949,10**6,5,8))==8
+assert dl.tok_cell(0,0)=='           0'
+"
+	pyt "fit_roster_columns: drop order is exactly cost->took->face->ind->status; sets nest" "
+import debate_lib as dl
+# derive the drop ORDER by narrowing, rather than hard-coding the thresholds
+order, prev = [], set(c[0] for c in dl.fit_roster_columns(400))
+for m in range(400,0,-1):
+    cur=set(c[0] for c in dl.fit_roster_columns(m))
+    assert cur <= prev, (m, sorted(prev), sorted(cur))   # narrowing never ADDS a column
+    order+=sorted(prev-cur)
+    prev=cur
+assert order==['cost','took','face','ind','status'], order
+# widening never removes one either: the surviving sets are strictly nested
+prev=set()
+for m in range(0,400):
+    cur=set(c[0] for c in dl.fit_roster_columns(m))
+    assert prev <= cur, (m, sorted(prev), sorted(cur))
+    prev=cur
+# load-bearing columns survive at ANY width, incl. tiny/negative/huge, without raising
+for m in (-100,-1,0,1,20,43,44,45,79,80,120,10**6,10**9):
+    keys=[c[0] for c in dl.fit_roster_columns(m)]
+    for k in ('role','model','tokens'): assert k in keys, (m,keys)
+    assert [c[2] for c in dl.fit_roster_columns(m) if c[0]=='model'][0] >= dl.MODEL_MIN_W
+# 44 is the narrowest terminal the minimum row fits; from there up the row is EXACTLY maxx-1
+for m in range(44,400):
+    cols=dl.fit_roster_columns(m)
+    row=2+sum(c[2] for c in cols)+len(dl.COL_SEP)*(len(cols)-1)
+    assert row<=m-1, (m,row)
+    assert row==m-1, (m,row)          # MODEL absorbs all remaining slack, no dead columns
+"
+	pyt "load_prices: every malformed override shape falls back to the built-in table" "
+import copy, os, debate_lib as dl
+root='$WORKDIR/prices-root'
+P=os.path.join(root,'.angel-advoc','prices.json')
+BUILTIN=copy.deepcopy(dl.PRICES_PER_MTOK)
+def write(s):
+    with open(P,'w') as fh: fh.write(s)
+for bad in ('not json at all', '', 'null', '[1,2,3]', '\"hello\"', '123',
+            '{\"opus\":[1,2,3]}', '{\"opus\":[1,2,3,4,5]}', '{\"opus\":{\"in\":1}}',
+            '{\"opus\":[\"a\",\"b\",\"c\",\"d\"]}', '{\"opus\":[null,1,1,1]}',
+            '{\"opus\":\"abcd\"}', '{\"opus\":[]}'):
+    write(bad)
+    assert dl.load_prices(root)==BUILTIN, (bad, dl.load_prices(root))
+os.remove(P)
+assert dl.load_prices(root)==BUILTIN                 # missing file
+os.mkdir(P)
+assert dl.load_prices(root)==BUILTIN                 # prices.json is a DIRECTORY
+os.rmdir(P)
+write('{\"opus\":[1,2,3,4]}')
+os.chmod(P,0o000)
+if os.geteuid()!=0:
+    assert dl.load_prices(root)==BUILTIN             # unreadable
+os.chmod(P,0o644)
+# a VALID override is honoured, is case-insensitive on the family key, may add a new family,
+# and never mutates the module-level table (a stale process must not inherit it)
+write('{\"OPUS\":[1,2,3,4],\"llama\":[9,9,9,9]}')
+p=dl.load_prices(root)
+assert p['opus']==(1.0,2.0,3.0,4.0) and p['llama']==(9.0,9.0,9.0,9.0), p
+assert p['sonnet']==BUILTIN['sonnet']                # untouched families keep built-ins
+assert dl.PRICES_PER_MTOK==BUILTIN, 'load_prices mutated the module-level table'
+assert dl.load_prices(None)==BUILTIN and dl.load_prices(None) is not dl.PRICES_PER_MTOK
+"
+	pyt "load_prices: one bad row never discards the others — result is key-order independent" "
+import os, debate_lib as dl
+# Regression test. A wrong-TYPE row used to escape to a loop-wide except and abandon every row
+# after it, so the same override content applied or didn't depending on JSON key order. The
+# guard is now per-row: a bad entry is skipped, valid entries always land.
+root='$WORKDIR/prices-root'
+P=os.path.join(root,'.angel-advoc','prices.json')
+def load(s):
+    with open(P,'w') as fh: fh.write(s)
+    return dl.load_prices(root)
+bad_first=load('{\"opus\":[\"x\",\"x\",\"x\",\"x\"],\"sonnet\":[1,1,1,1]}')
+good_first=load('{\"sonnet\":[1,1,1,1],\"opus\":[\"x\",\"x\",\"x\",\"x\"]}')
+assert bad_first==good_first, (bad_first, good_first)      # key order is irrelevant
+assert bad_first['sonnet']==(1.0,1.0,1.0,1.0)              # the valid row always applies
+assert bad_first['opus']==dl.PRICES_PER_MTOK['opus']       # the bad row falls back, alone
+# a wrong-SHAPE row is likewise skipped per-row without abandoning the rest
+after=load('{\"opus\":[1,2,3],\"sonnet\":[1,1,1,1]}')
+assert after['sonnet']==(1.0,1.0,1.0,1.0), after
+assert after['opus']==dl.PRICES_PER_MTOK['opus'], after
+"
+	pyt "estimate_cost: cache tokens at cache rates, unpriced family -> None (never 0 or a guess)" "
+import debate_lib as dl
+E=dl.estimate_cost
+M=1_000_000
+# each usage bucket is priced from its OWN column, not lumped in with input
+assert E({'input':M},'claude-opus-5')==15.0
+assert E({'output':M},'claude-opus-5')==75.0
+assert E({'cache_read':M},'claude-opus-5')==1.5      # cache read is 10x cheaper than input
+assert E({'cache_create':M},'claude-opus-5')==18.75  # cache write is DEARER than input
+assert E({'input':M,'output':M,'cache_read':M,'cache_create':M},'claude-opus-5')==110.25
+# family-keyed, so a dated snapshot needs no entry of its own
+assert E({'input':M},'claude-sonnet-4-5-20250929')==3.0
+assert E({'input':M},'claude-haiku-4-5')==1.0
+# an unpriced family yields None -- the UI renders it '—' rather than a confidently wrong 0
+for m in ('gpt-4','some-other-llm','claude-unknown-9','',None):
+    assert E({'input':M},m) is None, m
+assert E({'input':M},'claude-opus-5',{}) is None     # empty table is a table, not a fallback
+assert dl.fmt_cost(E({'input':M},'gpt-4'))=='—'
+# missing/partial/None usage fields are zeros, not crashes
+assert E(None,'claude-opus-5')==0.0 and E({},'claude-opus-5')==0.0
+assert E({'input':None,'output':None},'claude-opus-5')==0.0
+assert E({'input':M,'bogus':10**9},'claude-opus-5')==15.0   # unknown keys ignored
+"
+	pyt "independence_state: fails CLOSED — never 'ok' when either model is unknown" "
+import debate_lib as dl
+S=dl.independence_state
+seen=set()
+for role in list(dl.CROSS_MODEL_ROLES)+list(dl.INHERIT_ROLES)+['arbiter','tldr',None,'']:
+    for model in ('claude-sonnet-5','claude-opus-5',None,''):
+        for arb in ('claude-opus-5',None,''):
+            st=S(role,model,arb); seen.add(st)
+            # the load-bearing property: an undetermined model can never read as independent
+            assert not ((not model or not arb) and st=='ok'), (role,model,arb,st)
+assert seen <= set(dl.IND_MARKS), seen                 # every state has a badge
+# all four cross-model roles behave identically
+for r in dl.CROSS_MODEL_ROLES:
+    assert S(r,'claude-sonnet-5','claude-opus-5')=='ok', r
+    assert S(r,'claude-opus-5','claude-opus-5')=='collapse', r
+    assert S(r,'claude-sonnet-5',None)=='unknown', r
+    assert S(r,None,'claude-opus-5')=='unknown', r
+# family-aware: dated twins of ONE tier are a collapse even though the strings differ
+assert S('devil','claude-opus-4-1-20250805','claude-opus-4-5-20251101')=='collapse'
+assert S('verifier','claude-sonnet-4-5-20250929','claude-sonnet-4-5-20250930')=='collapse'
+# the reactive-respawn ladder's rung: a haiku verifier under an opus Arbiter is genuinely ok
+assert S('verifier','claude-haiku-4-5','claude-opus-5')=='ok'
+# an UNRECOGNISED id compares exactly, so it never false-matches another unknown
+assert S('devil','my-llm-v1','my-llm-v1')=='collapse' and S('devil','my-llm-v1','my-llm-v2')=='ok'
+# every badge glyph is exactly ONE display column and fits IND_W ('✓' measures 2, which is
+# why '√' was chosen) -- a 2-column glyph here shifts every column to its right
+for st,(g,key) in dl.IND_MARKS.items():
+    assert dl.display_width(g)==1, (st,g,dl.display_width(g))
+    assert dl.display_width(g)<=dl.IND_W and key, (st,g,key)
+assert dl.independence_mark('devil','claude-sonnet-5','claude-opus-5')==dl.IND_MARKS['ok']
+assert dl.independence_mark('nobody',None,None)==dl.IND_MARKS['n/a']
+"
+	pyt "every style key the lib emits exists in the viewer's attr table (else it paints unstyled)" "
+import types, debate_lib as dl, debate_view as dv
+# _render_row does attrs.get(key, 0), so a missing key does not crash -- it silently renders
+# with no attribute at all, i.e. a dealbreaker that should be red comes out as plain prose.
+stub=types.SimpleNamespace(A_NORMAL=0,A_BOLD=1,A_DIM=2,A_REVERSE=4,A_UNDERLINE=8,
+                           has_colors=lambda: False)
+attrs=dv._build_attrs(stub)
+need=set(k for _g,k in dl.IND_MARKS.values())                  # independence badge styles
+need|={'db','warn','ok','sect'}                                # debate severity styles
+need|={'heat%d'%i for i in range(dl.HEAT_BUCKETS)}             # token heat ramp
+need|={'plain','dim','active','done','hdr'}
+missing=sorted(need-set(attrs))
+assert not missing, missing
+"
+	pyt "debate_line_style: the full severity vocabulary the agents actually emit" "
+import debate_lib as dl
+f=dl.debate_line_style
+for line in ('DEALBREAKER: x','- **DEALBREAKER (reproduced)** — y','**Dealbreakers**',
+             'dealbreakers:','• DEALBREAKER z','SHARPEST OBJECTION: q','SHARPEST ATTACK',
+             '[FAIL] widths overflow','FAILS — 2 item(s)','**FAILS: 2**'):
+    assert f(line)=='db', (line,f(line))
+for line in ('WORTH-NOTING — z','- WORTH NOTING: y','[PARTIAL — see note]',
+             'IF YOU FIX ONE THING'):
+    assert f(line)=='warn', (line,f(line))
+for line in ('[PASS] widths hold','HONEST CONCESSION: two','CONCESSION','- CONCEDE: fine',
+             'WHAT HOLDS UP','CONFORMS','OVERALL: CONFORMS'):
+    assert f(line)=='ok', (line,f(line))
+for line in ('CASE FOR the change','CASE AGAINST','STRONGEST GROUND','CROSS-EXAMINATION',
+             'CONFORMANCE CHECK','SCOPE DRIFT: none','FINDINGS','PRECEDENT','INTERPRETATIONS',
+             'TEST REPORT:','DOC SYNC REPORT','HONEST LIMIT','OVERALL: things'):
+    assert f(line)=='sect', (line,f(line))
+# precedence: the specific CONFORMS rule must beat the generic OVERALL section rule
+assert f('OVERALL: CONFORMS — 1 item')=='ok'
+"
+	pyt "debate_line_style: no false positives on prose, and robust on empty/huge lines" "
+import time, debate_lib as dl
+f=dl.debate_line_style
+# inflections that merely LOOK like the vocabulary must stay plain prose
+for line in ('The dealbreaker was mentioned mid-sentence','Failed to parse the file',
+             'Failure to launch','Failing tests are listed below','FAILSAFE mode enabled',
+             'FAILOVER to the replica','This overall approach works','OVERALLOCATED buffers',
+             'overallocation of memory','Conceding nothing here','The case for it is weak',
+             'CASE FORWARD','Passing the test is easy','passed the check','FINDINGSOMETHING',
+             'PRECEDENTED behaviour','A findings section follows','conformance checks are useful',
+             'scope drifted a bit','No dealbreakers found — proceed','the test report says'):
+    assert f(line) is None, (line,f(line))
+# degenerate input never raises and never classifies
+for line in (None,'','   ','\t\n','*'*50,'**',' - ','•','- '):
+    assert f(line) is None, repr(line)
+# leading whitespace is stripped before matching (indented report lines still classify)
+assert f('    DEALBREAKER: indented')=='db' and f('\t[PASS] tabbed')=='ok'
+# a pathological line must not blow up the render loop (no catastrophic backtracking)
+for line in ('*'*200000+'x', ' '*200000+'x', '- '*100000+'x', 'x'*200000):
+    t0=time.perf_counter(); f(line); dt=time.perf_counter()-t0
+    assert dt<5.0, (len(line),dt)
+"
+	pyt "bulleted verdict lines classify through the real two-step path (classify_line -> style)" "
+import debate_lib as dl, debate_view as dv
+# The viewer never hands debate_line_style a RAW line: _detail_rows runs classify_line first,
+# which strips the '-'/'*'/'+' bullet marker. So the per-item verdicts this repo's own reports
+# emit as bullets (verifier.md:81, test-writer.md:95) must classify AFTER that strip.
+def styled(line):
+    _kind, content, _lead = dl.classify_line(line)
+    return dl.debate_line_style(content)
+for line in ('- [FAIL] the dealbreaker never landed','* [FAIL] star bullet','+ [FAIL] plus'):
+    assert styled(line)=='db', (line, styled(line))
+for line in ('- [PASS] scope held','* [PASS] x','+ [PASS] y'):
+    assert styled(line)=='ok', (line, styled(line))
+assert styled('- **DEALBREAKER** — reproduced')=='db'
+assert styled('- WORTH-NOTING — minor')=='warn'
+# and end to end through the detail pane: the severity reaches the rendered row's style
+rows=dv._detail_rows({'events':[{'kind':'text','text':'- [FAIL] x'}]}, 78)
+assert any('db' in {s for _t,s in r} for r in rows), rows
+"
+	# --- KNOWN DEFECT: this test FAILS against the current implementation. ------------------
+	# Left red on purpose (the test-writer does not patch production code); see the TEST
+	# REPORT for the write-up. tools/debate_lib.py:958-962 (_DEBATE_PATTERNS).
+	pyt "DEFECT: 'OVERALL: FAILS' reads as a neutral section header, while 'OVERALL: CONFORMS' reads ok" "
+import debate_lib as dl
+f=dl.debate_line_style
+assert f('OVERALL: CONFORMS')=='ok'          # the success verdict IS special-cased today
+# ...but its failure counterpart is swallowed by the generic 'OVERALL' section rule, so the
+# single most important line of a failing verifier/test-writer report is the LEAST prominent
+assert f('OVERALL: FAILS — 2 item(s) need attention')=='db', repr(f('OVERALL: FAILS — 2 item(s) need attention'))
+assert f('OVERALL: FAILS — 3 failing')=='db', repr(f('OVERALL: FAILS — 3 failing'))
+assert f('OVERALL: things')=='sect'          # a bare OVERALL stays a section header
+"
+	pyt "agent_end/agent_duration: no events, unparseable, out-of-order and end<start fail safe" "
+import debate_lib as dl
+T=lambda s: {'ts':s}
+# no events at all -> falls back to file mtime for BOTH ends (duration 0, not None/negative)
+assert dl.agent_end({'events':[],'mtime':1000.0})==1000.0
+assert dl.agent_duration({'events':[],'mtime':1000.0})==0.0
+assert dl.agent_end({'mtime':1000.0})==1000.0            # events key missing entirely
+assert dl.agent_end({'events':None,'mtime':1000.0})==1000.0
+assert dl.agent_end({})==0.0 and dl.agent_duration({}) is None
+# unparseable / missing / non-string timestamps all fall through to mtime rather than raising
+for ev in ([T('garbage')],[T('')],[T(None)],[T(1234567890)],[T({'a':1})],[{'kind':'text'}]):
+    a={'events':ev,'mtime':1000.0}
+    assert dl.agent_start(a)==1000.0 and dl.agent_end(a)==1000.0, ev
+    assert dl.agent_duration(a)==0.0, ev
+# start scans FORWARD and end scans BACKWARD for the first parseable ts, so a bad timestamp
+# at either edge does not truncate the span
+mid=[T('nope'),T('2026-07-24T00:00:00Z'),T('2026-07-24T00:02:00Z'),T('nope')]
+assert dl.agent_duration({'events':mid,'mtime':5.0})==120.0
+# OUT OF ORDER (end < start) is refused rather than reported as a negative duration
+back={'events':[T('2026-07-24T00:05:00Z'),T('2026-07-24T00:00:00Z')],'mtime':5.0}
+assert dl.agent_end(back) < dl.agent_start(back)
+assert dl.agent_duration(back) is None, dl.agent_duration(back)
+assert dl.fmt_duration(dl.agent_duration(back))=='—'
+# a real ordered pair, incl. sub-second timestamps, measures the wall clock
+run={'events':[T('2026-07-24T00:00:00.123456Z'),T('2026-07-24T00:01:40.123456Z')],'mtime':5.0}
+assert dl.agent_duration(run)==100.0 and dl.fmt_duration(dl.agent_duration(run))=='1m40s'
+# agent_start/agent_end bound every event, so timeline_bar can never be handed end<t0
+assert dl.agent_start(run) <= dl.agent_end(run)
+"
+}
+
 echo "debate_lib.py regression suite"
 echo "  target : $TOOLS_DIR/debate_lib.py"
 echo "  tmpdir : $WORKDIR"
@@ -430,6 +870,8 @@ t_status
 t_once_dump
 t_markdown
 t_tokens
+mkdir -p "$WORKDIR/prices-root/.angel-advoc"   # fixture root for the price-override tests
+t_edges
 
 echo
 echo "-------------------------------------------"

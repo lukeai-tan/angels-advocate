@@ -785,6 +785,252 @@ def strip_model_prefix(model):
     return m[len(MODEL_DISPLAY_PREFIX):] if m.startswith(MODEL_DISPLAY_PREFIX) else m
 
 
+# --- durations ---------------------------------------------------------------
+DUR_W = 6
+
+
+def agent_end(a):
+    """Best-effort end time (epoch): the agent's last event timestamp, else its file mtime.
+    Like agent_start this is a heuristic — Claude Code emits no explicit 'finished' record,
+    so a still-running agent's 'end' is simply its latest activity."""
+    for e in reversed(a.get("events") or []):
+        t = _ts_epoch(e.get("ts"))
+        if t is not None:
+            return t
+    return a.get("mtime") or 0.0
+
+
+def agent_duration(a):
+    """Wall-clock seconds the agent was active, or None if it can't be determined."""
+    s, e = agent_start(a), agent_end(a)
+    if not s or not e or e < s:
+        return None
+    return e - s
+
+
+def fmt_duration(sec):
+    """Compact elapsed time, never wider than DUR_W: '42s', '3m22s', '2h05m', '9d03h'."""
+    if sec is None:
+        return "—"
+    s = int(max(0, sec))
+    if s < 60:
+        return f"{s}s"
+    m, ss = divmod(s, 60)
+    if m < 60:
+        return f"{m}m{ss:02d}s"
+    h, mm = divmod(m, 60)
+    if h < 24:
+        return f"{h}h{mm:02d}m"
+    d, hh = divmod(h, 24)
+    return f"{d}d{hh:02d}h" if d < 100 else "99d+"
+
+
+def timeline_bar(start, end, t0, t1, width, running=False):
+    """A Gantt strip of EXACTLY `width` display columns placing [start,end] inside the
+    window [t0,t1]. Always paints at least one cell, so a 20-second agent next to a
+    20-minute one still shows up instead of vanishing into a rounding error."""
+    width = max(0, int(width))
+    if width == 0:
+        return ""
+    span = (t1 - t0) if (t0 is not None and t1 is not None and t1 > t0) else 0
+    if not span or start is None or end is None:
+        return " " * width
+    lo = min(max((start - t0) / span, 0.0), 1.0)
+    hi = min(max((end - t0) / span, 0.0), 1.0)
+    s = min(int(lo * width), width - 1)
+    e = min(max(int(round(hi * width)), s + 1), width)
+    return " " * s + ("░" if running else "█") * (e - s) + " " * (width - e)
+
+
+# --- cost estimate -----------------------------------------------------------
+# Indicative USD per MILLION tokens, by model family: (input, output, cache_read, cache_write).
+# These are ESTIMATES for orientation, NOT billing. Keyed by family so a new dated snapshot
+# doesn't need an entry; they go stale whenever pricing changes, and a gateway (a corporate
+# proxy, a reseller) may bill at entirely different rates. Override by dropping a JSON file
+# of the same shape at .angel-advoc/prices.json. An unpriced family renders '—' rather than
+# a confidently wrong number.
+PRICES_PER_MTOK = {
+    "opus":   (15.00, 75.00, 1.50, 18.75),
+    "sonnet": (3.00, 15.00, 0.30, 3.75),
+    "haiku":  (1.00, 5.00, 0.10, 1.25),
+}
+COST_W = 7
+
+
+def load_prices(repo_root=None):
+    """PRICES_PER_MTOK overlaid with .angel-advoc/prices.json when present."""
+    prices = dict(PRICES_PER_MTOK)
+    if not repo_root:
+        return prices
+    try:
+        with open(os.path.join(repo_root, ".angel-advoc", "prices.json"), "rb") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return prices            # missing/unreadable/not-JSON -> built-in table
+    if not isinstance(data, dict):
+        return prices
+    for fam, row in data.items():
+        # Guard PER ROW: a single bad entry must not discard the rows after it, which is
+        # what a loop-wide try/except did — making the override's effect depend on key order.
+        try:
+            if isinstance(row, (list, tuple)) and len(row) == 4:
+                prices[str(fam).lower()] = tuple(float(x) for x in row)
+        except (TypeError, ValueError):
+            continue
+    return prices
+
+
+def estimate_cost(usage, model, prices=None):
+    """Indicative USD for one agent's usage, or None when the family has no price entry."""
+    p = (prices if prices is not None else PRICES_PER_MTOK).get(model_family(model) or "")
+    if not p:
+        return None
+    u = _norm_usage_keys(usage)
+    return (u["input"] * p[0] + u["output"] * p[1]
+            + u["cache_read"] * p[2] + u["cache_create"] * p[3]) / 1_000_000
+
+
+def _norm_usage_keys(u):
+    u = u or {}
+    return {k: (u.get(k) or 0) for k in USAGE_FIELDS}
+
+
+def fmt_cost(d):
+    """Compact USD, never wider than COST_W: '—', '<$0.01', '$2.14', '$1,234', '$99999+'.
+
+    Same measure-don't-assume rule as fmt_tokens: a `d < 1000` threshold looks safe but
+    999.999 formats as '$1,000.00' (9 cols) once .2f rounds up, so each candidate is
+    measured and the next-coarser form is used when it doesn't fit."""
+    if d is None:
+        return "—"
+    if d <= 0:
+        return "$0.00"
+    if d < 0.01:
+        return "<$0.01"
+    for s in (f"${d:,.2f}", f"${d:,.0f}"):
+        if display_width(s) <= COST_W:
+            return s
+    return "$99999+"
+
+
+# --- independence badge ------------------------------------------------------
+IND_W = 3
+# Width-1 glyphs on purpose: '✓'/'✗' measure TWO columns under char_width, which would make
+# this narrow column ragged beside the width-1 '~'/'·' states (the alignment bug class this
+# viewer keeps re-learning). '√'/'×' read the same and measure 1.
+IND_MARKS = {
+    "ok":       ("√", "ind_ok"),
+    "collapse": ("×", "ind_bad"),
+    "inherit":  ("~", "dim"),
+    "unknown":  ("?", "ind_warn"),
+    "n/a":      ("·", "dim"),
+}
+
+
+def independence_state(role, model, arbiter_model):
+    """Where this agent sits against the cross-model independence rule:
+      'ok'       cross-model role genuinely on a different family than the Arbiter
+      'collapse' cross-model role that ended up on the Arbiter's family — independence lost
+      'inherit'  role that runs on the Arbiter's model by design (not a failure)
+      'unknown'  cross-model role but the Arbiter's model is undetermined (fail-closed)
+      'n/a'      anything else
+    """
+    if role in CROSS_MODEL_ROLES:
+        if not model or not arbiter_model:
+            return "unknown"
+        return "collapse" if same_model(model, arbiter_model) else "ok"
+    if role in INHERIT_ROLES:
+        return "inherit"
+    return "n/a"
+
+
+def independence_mark(role, model, arbiter_model):
+    """(glyph, style-key) for the roster's IND column."""
+    return IND_MARKS[independence_state(role, model, arbiter_model)]
+
+
+# --- debate structure highlighting -------------------------------------------
+# The advocates emit a consistent vocabulary (DEALBREAKER, CASE FOR/AGAINST, HONEST
+# CONCESSION, [PASS]/[FAIL], ...). Colouring it by severity turns a wall of grey prose into
+# something skimmable — when you open a debate mid-flight, "what did it find and how bad is
+# it" is the first thing you want, and today it reads as undifferentiated text.
+_DEBATE_PATTERNS = (
+    (re.compile(r"^(?:[-*+•]\s*)?\**\s*DEALBREAKER", re.I), "db"),
+    (re.compile(r"^\**\s*\[?FAILS?\b", re.I), "db"),
+    (re.compile(r"^\**\s*SHARPEST\s+(?:OBJECTION|ATTACK)", re.I), "db"),
+    # The bottom-line verdict of a report, both ways. These MUST precede the generic
+    # 'OVERALL' section rule below: without them a failing verdict fell through to the
+    # neutral 'sect' style (which draws no severity marker at all) while the passing one
+    # matched 'ok' — making bad news strictly less prominent than good news, which is the
+    # exact inversion of why this highlighting exists.
+    (re.compile(r"^\**\s*OVERALL:?\s*\**\s*FAILS?\b", re.I), "db"),
+    (re.compile(r"^(?:[-*+•]\s*)?\**\s*WORTH.NOTING", re.I), "warn"),
+    (re.compile(r"^\**\s*\[PARTIAL", re.I), "warn"),
+    (re.compile(r"^\**\s*IF YOU FIX ONE THING", re.I), "warn"),
+    (re.compile(r"^\**\s*\[PASS\]", re.I), "ok"),
+    (re.compile(r"^(?:[-*+•]\s*)?\**\s*(?:HONEST\s+)?CONCE(?:SSION|DE)", re.I), "ok"),
+    (re.compile(r"^\**\s*(?:WHAT HOLDS UP|CONFORMS)", re.I), "ok"),
+    (re.compile(r"^\**\s*OVERALL:?\s*\**\s*(?:CONFORMS|PASSES)\b", re.I), "ok"),
+    (re.compile(r"^\**\s*(?:CASE\s+(?:FOR|AGAINST)|STRONGEST\s+GROUND|CROSS-EXAMINATION"
+                r"|CONFORMANCE\s+CHECK|SCOPE\s+DRIFT|OVERALL|FINDINGS|PRECEDENT"
+                r"|INTERPRETATIONS|TEST\s+REPORT|DOC\s+SYNC\s+REPORT|HONEST\s+LIMIT)\b",
+                re.I), "sect"),
+)
+
+
+def debate_line_style(text):
+    """Severity style for a debate line, or None for ordinary prose.
+    'db' dealbreaker/fail · 'warn' caveat · 'ok' concession/pass · 'sect' section header."""
+    s = (text or "").lstrip()
+    for pat, key in _DEBATE_PATTERNS:
+        if pat.match(s):
+            return key
+    return None
+
+
+# --- roster layout -----------------------------------------------------------
+ROLE_W, STAT_W, FACE_W = 15, 13, 5
+COL_SEP = " │ "
+MODEL_MIN_W = 8
+# (key, header, width, drop-priority). width None = elastic: MODEL absorbs the slack.
+# drop-priority None = never dropped; otherwise the HIGHEST number is dropped first, so a
+# narrowing terminal sheds COST, then TOOK, then FACE, then IND, then STATUS — cosmetic
+# columns before load-bearing ones.
+ROSTER_SPEC = (
+    ("role",   "ROLE",   ROLE_W,     None),
+    ("model",  "MODEL",  None,       None),
+    ("ind",    "IND",    IND_W,      2),
+    ("tokens", "TOKENS", TOK_CELL_W, None),
+    ("took",   "TOOK",   DUR_W,      4),
+    ("cost",   "COST",   COST_W,     5),
+    ("status", "STATUS", STAT_W,     1),
+    ("face",   "FACE",   FACE_W,     3),
+)
+
+
+def fit_roster_columns(maxx, spec=ROSTER_SPEC, lead=2, sep=COL_SEP, model_min=MODEL_MIN_W):
+    """Pick the roster columns that fit `maxx` and size the elastic one.
+
+    Eight columns do not fit 80 chars, so rather than clipping the row (which would hide
+    whichever column happened to land last) this sheds optional columns cheapest-first and
+    gives MODEL whatever is left over. Returns [(key, header, width)] in display order.
+    Pure, so every layout is testable without a terminal."""
+    cols = list(spec)
+    avail = max(0, int(maxx) - 1 - lead)
+
+    def need(cs):
+        fixed = sum((w if w is not None else model_min) for _, _, w, _ in cs)
+        return fixed + len(sep) * max(0, len(cs) - 1)
+
+    while need(cols) > avail:
+        droppable = [c for c in cols if c[3] is not None]
+        if not droppable:
+            break                          # only load-bearing columns left; let it clip
+        cols.remove(max(droppable, key=lambda c: c[3]))
+    slack = max(0, avail - need(cols))
+    return [(k, h, (model_min + slack) if w is None else w) for k, h, w, _ in cols]
+
+
 def session_transcripts(pdir):
     """Map every session under a project dir to its transcripts:
     {session_id: {"main": <path or None>, "subagents": [paths]}}. The main transcript is

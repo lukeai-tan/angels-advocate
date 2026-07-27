@@ -99,7 +99,17 @@ def _detail_rows(agent, width):
             base = indent + (lead // 2)
             if kind == "fence":
                 continue  # drop ``` fence lines; the content between still renders
-            if kind == "header":
+            # The advocates emit a fixed severity vocabulary (DEALBREAKER, WORTH-NOTING,
+            # CONCEDE, [PASS]/[FAIL], CASE FOR/AGAINST...). When a line opens with one, paint
+            # the WHOLE line that severity so the transcript is skimmable by seriousness
+            # rather than being a uniform wall of prose.
+            sev = dl.debate_line_style(content)
+            if sev:
+                marker = {"db": "▌", "warn": "▌", "ok": "▌", "sect": ""}[sev]
+                segs = ([(marker, sev)] if marker else []) + [(t, sev) for t, _ in
+                                                              dl.parse_inline(content)]
+                rows.extend(dl.wrap_segments(segs, width, base))
+            elif kind == "header":
                 for r in dl.wrap_segments(dl.parse_inline(content), width, base):
                     rows.append([(t, "mdh") for t, _ in r])   # whole header line accented
             elif kind == "bullet":
@@ -136,7 +146,13 @@ def _build_attrs(curses):
          "c": curses.A_REVERSE, "mdh": curses.A_BOLD, "dim": curses.A_DIM,
          "tool": curses.A_BOLD, "bullet": curses.A_BOLD,
          "bar": curses.A_REVERSE, "active": curses.A_BOLD, "done": curses.A_DIM,
-         "hdr": curses.A_BOLD | curses.A_UNDERLINE}
+         "hdr": curses.A_BOLD | curses.A_UNDERLINE,
+         # debate-structure severity + independence badge; mono fallbacks keep them
+         # distinguishable by weight alone when there is no colour at all.
+         "db": curses.A_BOLD | curses.A_REVERSE, "warn": curses.A_BOLD,
+         "ok": curses.A_DIM, "sect": curses.A_BOLD | curses.A_UNDERLINE,
+         "ind_ok": curses.A_DIM, "ind_bad": curses.A_BOLD | curses.A_REVERSE,
+         "ind_warn": curses.A_BOLD}
     try:
         if curses.has_colors():
             curses.start_color()
@@ -145,6 +161,7 @@ def _build_attrs(curses):
             curses.init_pair(2, curses.COLOR_GREEN, -1)
             curses.init_pair(3, curses.COLOR_YELLOW, -1)
             curses.init_pair(4, curses.COLOR_MAGENTA, -1)
+            curses.init_pair(5, curses.COLOR_RED, -1)   # severity: dealbreaker / collapse
             C = curses.color_pair
             a["label"] = C(1) | curses.A_BOLD
             a["think"] = C(4) | curses.A_DIM
@@ -154,6 +171,14 @@ def _build_attrs(curses):
             a["bullet"] = C(1) | curses.A_BOLD
             a["active"] = C(2) | curses.A_BOLD
             a["hdr"] = C(1) | curses.A_BOLD
+            # severity palette: red = dealbreaker/collapse, yellow = caveat, green = conceded/ok
+            a["db"] = curses.color_pair(5) | curses.A_BOLD
+            a["warn"] = C(3) | curses.A_BOLD
+            a["ok"] = C(2)
+            a["sect"] = C(1) | curses.A_BOLD | curses.A_UNDERLINE
+            a["ind_ok"] = C(2) | curses.A_BOLD
+            a["ind_bad"] = curses.color_pair(5) | curses.A_BOLD
+            a["ind_warn"] = C(3) | curses.A_BOLD
     except Exception:
         pass  # any color init failure -> keep the mono fallbacks
 
@@ -216,36 +241,55 @@ def _clamp_scroll(focus, top, height, n):
     return max(0, min(top, max(0, n - height)))
 
 
-_ROLE_W = 15          # role column: fits the longest name ("interpreter"/"test-writer") + " 😇"
+_ROLE_W = dl.ROLE_W   # role column: fits the longest name ("interpreter"/"test-writer") + " 😇"
 _TOK_W = dl.TOK_CELL_W  # tokens column: heat bar + count, e.g. "███▍   1.9M"
-_STAT_W = 13          # status column
-_FACE_W = 5           # reactive-face column (every face frame is exactly 5 cols)
-_SEP = " │ "          # column separator (│ is width-1 geometric, alignment-safe)
+_STAT_W = dl.STAT_W   # status column
+_FACE_W = dl.FACE_W   # reactive-face column (every face frame is exactly 5 cols)
+_SEP = dl.COL_SEP     # column separator (│ is width-1 geometric, alignment-safe)
 
 
-def _roster_model_w(maxx):
-    """Width of the model column, filling what's left after the fixed columns."""
-    return max(8, maxx - 1 - 2 - _ROLE_W - _TOK_W - _STAT_W - _FACE_W - 4 * len(_SEP))
+def _roster_cell(key, a, ctx):
+    """One roster cell -> (text, style-key), before padding. Keeping this a lookup keeps
+    _draw_roster's loop the same shape no matter which columns survived the width fit."""
+    if key == "role":
+        em = dl.role_emoji(a["role"])                 # sits right after the name
+        return (f"{a['role'] or '?'}" + (f" {em}" if em else ""),
+                "active" if ctx["focused"] else "plain")
+    if key == "model":
+        return (dl.strip_model_prefix(a["model"]) or "?", "dim")
+    if key == "ind":
+        return dl.independence_mark(a["role"], a["model"], ctx["arbiter"])
+    if key == "tokens":
+        return (dl.tok_cell(ctx["used"], ctx["peak"]), f"heat{dl.heat_bucket(ctx['used'], ctx['peak'])}")
+    if key == "took":
+        return (dl.fmt_duration(dl.agent_duration(a)), ctx["st_key"])
+    if key == "cost":
+        return (dl.fmt_cost(dl.estimate_cost(a.get("usage"), a["model"], ctx["prices"])), "dim")
+    if key == "status":
+        return (f"{'*' if ctx['status'] == 'active' else ' '} {ctx['act']}", ctx["st_key"])
+    if key == "face":
+        return (dl.face(a["role"], dl.face_state(ctx["status"], ctx["last_kind"]), ctx["frame"]),
+                ctx["st_key"])
+    return ("", "plain")
 
 
-def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, now):
-    """Draw the scrollable roster as a table: a ROLE │ MODEL │ STATUS header + rule, then agent
-    rows. Shows ▶ on the focused agent and ▲/▼ when scrolled past the top/bottom edge. Fields use
-    display-aware padding, so the angel/devil emoji (placed right after the name) keeps the columns
-    aligned. `total_h` includes the 2 header rows; the rest are agent rows."""
-    model_w = _roster_model_w(maxx)
+def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, now,
+                 arbiter=None, prices=None):
+    """Draw the scrollable roster as a table: a header + rule, then agent rows. Shows ▶ on the
+    focused agent and ▲/▼ when scrolled past the top/bottom edge. Which columns appear depends on
+    the terminal width (dl.fit_roster_columns sheds the cosmetic ones first). Fields use
+    display-aware padding, so the angel/devil emoji keeps the columns aligned. `total_h` includes
+    the 2 header rows; the rest are agent rows."""
+    cols = dl.fit_roster_columns(maxx)
     frame = int(now * dl.FACE_FPS)                 # animation frame (advances with wall-clock)
     # Heat denominator: the biggest consumer among the agents SHOWN (i.e. this debate), so
     # "hottest cell == biggest consumer here" holds at any debate size. Session-wide or
     # absolute scales flatten small debates into a uniform wash; see debate_lib's heat notes.
     peak = max((dl.usage_total(x.get("usage") or {}) for x in ordered), default=0)
-    # header + rule
-    header = ("  " + dl.pad_display("ROLE", _ROLE_W) + _SEP
-              + dl.pad_display("MODEL", model_w) + _SEP
-              + dl.pad_display("TOKENS", _TOK_W) + _SEP
-              + dl.pad_display("STATUS", _STAT_W) + _SEP + "FACE")
+
+    header = "  " + _SEP.join(dl.pad_display(h, w) for _k, h, w in cols)
     _safe_addstr(win, top_y, 0, header[: maxx - 1], attrs["hdr"])
-    rule_w = min(maxx - 1, 2 + _ROLE_W + _TOK_W + _STAT_W + _FACE_W + 4 * len(_SEP) + model_w)
+    rule_w = min(maxx - 1, dl.display_width(header))
     _safe_addstr(win, top_y + 1, 0, "─" * rule_w, attrs["dim"])
 
     body_y = top_y + 2
@@ -266,29 +310,60 @@ def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, n
             marker = "▼"
         else:
             marker = " "
-        dot = "*" if status == "active" else " "     # ASCII status flag (width-stable)
         last_kind = a["events"][-1]["kind"] if a["events"] else None
-        act = dl.activity_label(last_kind) if (status == "active" and a["events"]) else "done"
-        st_key = "active" if status == "active" else "done"
-        em = dl.role_emoji(a["role"])                 # sits right after the name
-        name = f"{a['role'] or '?'}" + (f" {em}" if em else "")
-        used = dl.usage_total(a.get("usage") or {})
-        tok = dl.tok_cell(used, peak)                 # bar + count, exactly _TOK_W cols
-        heat = f"heat{dl.heat_bucket(used, peak)}"
-        fc = dl.face(a["role"], dl.face_state(status, last_kind), frame)  # animated reactive face
-        row = [
-            (f"{marker} ", "active" if focused else "plain"),
-            (dl.pad_display(name, _ROLE_W), "active" if focused else "plain"),
-            (_SEP, "dim"),
-            (dl.pad_display(dl.strip_model_prefix(a["model"]) or "?", model_w), "dim"),
-            (_SEP, "dim"),
-            (dl.pad_display(tok, _TOK_W), heat),
-            (_SEP, "dim"),
-            (dl.pad_display(f"{dot} {act}", _STAT_W), st_key),
-            (_SEP, "dim"),
-            (dl.pad_display(fc, _FACE_W), st_key),
-        ]
+        ctx = {
+            "focused": focused, "status": status, "last_kind": last_kind, "frame": frame,
+            "st_key": "active" if status == "active" else "done",
+            "act": dl.activity_label(last_kind) if (status == "active" and a["events"]) else "done",
+            "used": dl.usage_total(a.get("usage") or {}), "peak": peak,
+            "arbiter": arbiter, "prices": prices,
+        }
+        row = [(f"{marker} ", "active" if focused else "plain")]
+        for i, (key, _hdr, w) in enumerate(cols):
+            if i:
+                row.append((_SEP, "dim"))
+            text, style = _roster_cell(key, a, ctx)
+            row.append((dl.pad_display(text, w), style))
         _render_row(win, body_y + row_i, 0, row, attrs, maxx)
+
+
+def _draw_timeline(win, ordered, top_y, height, attrs, maxx, now):
+    """Gantt panel: when each agent ran, relative to the shown debate's window. Makes the
+    debate's shape legible — a parallel opening round lines up, a cross-examination steps
+    right. Replaces the detail pane on 't'."""
+    if not ordered:
+        return
+    starts = [dl.agent_start(a) for a in ordered]
+    ends = [dl.agent_end(a) for a in ordered]
+    t0, t1 = min(starts), max(ends)
+    # Give the bar a real budget before the label takes it: on a narrow terminal a fixed
+    # _ROLE_W label eats the whole row and the Gantt silently renders off-screen — the point
+    # of the panel disappears while looking fine. Shrink the name instead.
+    name_w = min(_ROLE_W, max(6, maxx - 1 - dl.DUR_W - 2 - 8))
+    label_w = 1 + name_w + dl.DUR_W + 1
+    bar_w = max(4, maxx - 1 - label_w)
+    span = dl.fmt_duration(t1 - t0 if t1 > t0 else 0)
+    _safe_addstr(win, top_y, 0,
+                 f" TIMELINE · {len(ordered)} agent(s) over {span} "[: maxx - 1], attrs["hdr"])
+    for i, a in enumerate(ordered):
+        y = top_y + 1 + i
+        if y >= top_y + height:
+            break
+        running = dl.agent_status(a["mtime"], now=now) == "active"
+        em = dl.role_emoji(a["role"])
+        name = f"{a['role'] or '?'}" + (f" {em}" if em else "")
+        bar = dl.timeline_bar(starts[i], ends[i], t0, t1, bar_w, running)
+        _render_row(win, y, 0, [
+            (" " + dl.clip_to_width(dl.pad_display(name, name_w), name_w), "plain"),
+            (dl.pad_display(dl.fmt_duration(dl.agent_duration(a)), dl.DUR_W), "dim"),
+            (" ", "plain"),
+            (bar, "active" if running else "done"),
+        ], attrs, maxx)
+
+
+def _repo_root():
+    """This checkout's root (tools/ lives directly under it) — where a price override sits."""
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def run_live(stdscr, subagents_dir, label):
@@ -310,6 +385,8 @@ def run_live(stdscr, subagents_dir, label):
     detail_path = None # focused agent path, to reset detail scroll when focus changes
     detail_max = 0     # last frame's max detail scroll (for clamping key input)
     detail_page = 1    # last frame's detail page size (for PgUp/PgDn)
+    show_timeline = False              # 't' -> Gantt of the debate instead of the detail pane
+    prices = dl.load_prices(_repo_root())   # cost table, overridable per repo
 
     while True:
         # --- ingest new data ---
@@ -380,21 +457,27 @@ def run_live(stdscr, subagents_dir, label):
             # split: roster (+2 for the header) up to ~60% of the screen, scrolls beyond that.
             roster_h = min(n + 2, max(5, (maxy - 3) * 3 // 5))
             roster_top = _clamp_scroll(focus, roster_top, roster_h - 2, n)
-            _draw_roster(stdscr, shown, focus, roster_top, 1, roster_h, attrs, maxx, now)
+            arbiter, _src = dl.infer_arbiter_model(list(agents.values()))
+            _draw_roster(stdscr, shown, focus, roster_top, 1, roster_h, attrs, maxx, now,
+                         arbiter=arbiter, prices=prices)
 
             sep_y = 1 + roster_h
             _safe_addstr(stdscr, sep_y, 0, "─" * (maxx - 1), attrs["dim"])
             a = shown[focus]
-            em = dl.role_emoji(a["role"])
-            name = f"{a['role'] or '?'}" + (f" {em}" if em else "")   # emoji after the name
-            hdr = f" {name} — {a['model'] or '?'} "
-            _safe_addstr(stdscr, sep_y + 1, 0, hdr.ljust(maxx - 1)[: maxx - 1], attrs["hdr"])
-
             if a["path"] != detail_path:       # focus changed -> jump back to the newest
                 detail_path = a["path"]
                 detail_off = 0
             body_top = sep_y + 2
             body_h = maxy - body_top - 1
+
+            if show_timeline:                  # 't' swaps the detail pane for the Gantt
+                _draw_timeline(stdscr, shown, sep_y + 1, maxy - sep_y - 2, attrs, maxx, now)
+                body_h = 0                     # nothing else claims the lower pane
+            else:
+                em = dl.role_emoji(a["role"])
+                name = f"{a['role'] or '?'}" + (f" {em}" if em else "")   # emoji after the name
+                hdr = f" {name} — {a['model'] or '?'} "
+                _safe_addstr(stdscr, sep_y + 1, 0, hdr.ljust(maxx - 1)[: maxx - 1], attrs["hdr"])
             if body_h > 0:
                 rows = _detail_rows(a, maxx - 1)
                 total = len(rows)
@@ -420,7 +503,8 @@ def run_live(stdscr, subagents_dir, label):
                     _render_row(stdscr, base + j, 0, r, attrs, maxx)
 
         footer = (f" q quit · j/k select · PgUp/PgDn scroll · [ ] debate · "
-                  f"a {'one debate' if show_all else 'all agents'} · f follow:{'on' if follow else 'off'} ")
+                  f"a {'one debate' if show_all else 'all agents'} · f follow:{'on' if follow else 'off'} · "
+                  f"t {'detail' if show_timeline else 'timeline'} ")
         _safe_addstr(stdscr, maxy - 1, 0, footer.ljust(maxx - 1)[: maxx - 1], attrs["bar"])
         stdscr.refresh()
 
@@ -461,6 +545,8 @@ def run_live(stdscr, subagents_dir, label):
             show_all = not show_all
             follow = False
             focus = 0
+        elif ch == ord("t"):
+            show_timeline = not show_timeline
 
 
 def main(argv=None):
