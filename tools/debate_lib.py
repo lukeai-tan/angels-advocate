@@ -678,14 +678,111 @@ def usage_from_files(paths, since=None):
     return tot
 
 
+TOK_NUM_W = 6         # max display width of fmt_tokens output — the cell budget depends on it
+
+
 def fmt_tokens(n):
-    """Compact human token count: 950, 1.2k, 3.4M."""
+    """Compact human token count: 950, 1.2k, 3.4M. Never wider than TOK_NUM_W columns.
+
+    The rollover check is `< 999.95`, not `< 1000`: at one decimal place 999,950 formats as
+    '1000.0k' (7 cols), which silently broke the fixed-width TOKENS cell for every agent
+    transiting 999,950..999,999 on its way past a million — a range real agents cross on
+    every large run. Promoting to the next unit instead keeps the width bounded at the
+    source, so no caller can reintroduce the jitter by picking a different formatter."""
     n = int(n or 0)
+    sign = "-" if n < 0 else ""
+    n = abs(n)
     if n < 1000:
-        return str(n)
-    if n < 1_000_000:
-        return f"{n / 1000:.1f}k"
-    return f"{n / 1_000_000:.1f}M"
+        return f"{sign}{n}"
+    for unit, scale in (("k", 10**3), ("M", 10**6), ("B", 10**9), ("T", 10**12)):
+        v = n / scale
+        if v < 999.95:          # rounds to <= 999.9 at one decimal -> candidate fits
+            s = f"{sign}{v:.1f}{unit}"
+            # Measure, don't assume: a minus sign costs a column the 999.95 threshold does
+            # not budget for, so '-999.5k' is 7 wide. Promote to the next unit instead of
+            # trusting the threshold alone.
+            if display_width(s) <= TOK_NUM_W:
+                return s
+    return f"{sign}999T+"       # absurd magnitudes: stay bounded rather than widen
+
+
+# --- token heat map ----------------------------------------------------------
+# Colour + bar length encode each agent's token use relative to the PEAK AGENT IN THE
+# SHOWN DEBATE. Two encodings of one fact, deliberately: on a mono or 8-colour terminal —
+# or for a red/green-colourblind reader — bar length alone still carries the full ranking,
+# so colour is never load-bearing. The ramp has NO green: green already means "active" in
+# the STATUS column one over (see debate_view._build_attrs), and one hue must not carry two
+# meanings on the same row. Blue->amber->red is also monotone in luminance, so it survives
+# being screenshotted in grayscale.
+#
+# Normalizing to the live peak means a finished agent can visibly cool when a sibling
+# overtakes it. That is real, and accepted: it is how live monitors (htop, docker stats)
+# behave, and the two alternatives measure worse against this repo's own transcripts — an
+# absolute scale erases a 1.55x true spread and a monotonic ratchet ends up pinning several
+# agents at max heat at once. Peak is monotonically non-decreasing, so buckets only ever
+# settle one way and never oscillate; once every agent is done the counts stop changing, so
+# replay and --once are stable for free.
+HEAT_BUCKETS = 5
+HEAT_RAMP_256 = (25, 39, 214, 208, 196)   # navy -> azure -> amber -> orange -> red
+TOK_BAR_W = 5         # bar cells in the TOKENS column
+TOK_CELL_W = TOK_BAR_W + 1 + TOK_NUM_W    # bar + gap + count = 12
+
+_EIGHTHS = " ▏▎▍▌▋▊▉"  # partial-cell fills, 0/8..7/8 (U+258F..U+2589 are all width-1)
+
+
+def heat_bucket(value, peak, buckets=HEAT_BUCKETS):
+    """Heat level 0..buckets-1 for `value` against the debate's `peak`. Monotone in value,
+    so a bigger consumer can never render cooler than a smaller one. A falsy/zero peak means
+    there is nothing to compare against, so everything reads coldest."""
+    buckets = max(1, int(buckets))
+    try:
+        peak = float(peak or 0)
+        frac = (float(value or 0) / peak) if peak > 0 else 0.0
+    except (TypeError, ValueError):
+        frac = 0.0
+    frac = min(1.0, max(0.0, frac))
+    return min(buckets - 1, int(frac * buckets))
+
+
+def share_bar(value, peak, width=TOK_BAR_W):
+    """A left-aligned block bar of EXACTLY `width` display columns for value/peak.
+    Sub-cell eighths keep near-neighbours apart (153.4k vs 218.2k stay distinguishable
+    where whole cells would flatten both). Every glyph is width-1 under char_width, so this
+    cell can never shift the columns beside it."""
+    width = max(0, int(width))
+    if width == 0:
+        return ""
+    try:
+        peak = float(peak or 0)
+        frac = (float(value or 0) / peak) if peak > 0 else 0.0
+    except (TypeError, ValueError):
+        frac = 0.0
+    frac = min(1.0, max(0.0, frac))
+    full, rem = divmod(int(round(frac * width * 8)), 8)
+    full = min(full, width)
+    s = "█" * full
+    if full < width and rem:
+        s += _EIGHTHS[rem]
+    return s + " " * (width - display_width(s))
+
+
+def tok_cell(value, peak, bar_w=TOK_BAR_W, width=TOK_CELL_W):
+    """The TOKENS cell: share bar + right-aligned count, at exactly `width` display columns."""
+    bar = share_bar(value, peak, bar_w)
+    num = clip_to_width(fmt_tokens(value), max(0, width - bar_w - 1))
+    return bar + " " * max(0, width - bar_w - display_width(num)) + num
+
+
+MODEL_DISPLAY_PREFIX = "claude-"
+
+
+def strip_model_prefix(model):
+    """Drop the constant 'claude-' for display. It is the same 7 columns on every row and
+    carries no information — reclaiming them is what pays for the TOKENS bar, and it leaves
+    the MODEL column wide enough to stop clipping dated snapshot ids. Anything not starting
+    with the prefix is returned untouched."""
+    m = model or ""
+    return m[len(MODEL_DISPLAY_PREFIX):] if m.startswith(MODEL_DISPLAY_PREFIX) else m
 
 
 def session_transcripts(pdir):

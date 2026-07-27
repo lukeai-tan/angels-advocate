@@ -159,7 +159,19 @@ a live terminal view of what they're doing — each agent's role, model, and its
 and output as they stream in. It reads the session's subagent transcripts read-only and tails them as
 they grow; run it in a second terminal while a debate is underway. The roster's **FACE** column shows
 a tiny reactive face per agent that emotes by what it's doing — thinking, running a tool, writing,
-or resting — and animates only while the agent is active (angel and devil get their own expressions). `tools/debate-view.sh --once` prints
+or resting — and animates only while the agent is active (angel and devil get their own expressions).
+
+The **TOKENS** column is a *heat map*: a bar plus a colour ramp (navy → azure → amber → orange → red)
+showing each agent's token use against the **biggest consumer in the debate being shown**, so you can
+see at a glance which subagent is eating the budget. Bar length and colour encode the same fact on
+purpose — on a mono or 8-colour terminal, or for a red/green-colourblind reader, the bar alone still
+carries the ranking, and the ramp deliberately contains no green because green already means "active"
+in the STATUS column. Two honest caveats: the number is **billed** tokens (~98% of it is cache reads,
+so it tracks context re-reads and turn count more than how hard an agent worked — the title bar says
+`tok billed` for this reason), and because the scale follows the live peak, a finished agent can cool
+as a still-running sibling overtakes it. That's how live monitors behave; the alternatives tested
+worse (an absolute scale washes small debates flat, and a monotonic ratchet ends up pinning several
+agents at max heat at once). `tools/debate-view.sh --once` prints
 a one-shot dump instead of the live view (and is what runs automatically when there's no TTY). Agent
 "active/done" status is an mtime heuristic — Claude Code emits no explicit finished signal — and the
 view labels it as such.

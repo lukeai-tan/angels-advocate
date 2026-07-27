@@ -156,6 +156,33 @@ def _build_attrs(curses):
             a["hdr"] = C(1) | curses.A_BOLD
     except Exception:
         pass  # any color init failure -> keep the mono fallbacks
+
+    # Heat ramp for the TOKENS column. Deliberately its OWN try/except, placed AFTER the
+    # block above: init_pair() with a 256-colour index raises ValueError on an 8-colour
+    # terminal ("Color number is greater than COLORS-1"), and sharing the try above would
+    # abort it partway, silently reverting label/tool/active/hdr to mono on terminals where
+    # they work today. Gated on COLORS >= 256 with an 8/16-colour branch below, so the ramp
+    # degrades instead of taking the rest of the palette down with it.
+    # Mono is not a fallback that needs building: bar length already carries the ranking.
+    for i in range(dl.HEAT_BUCKETS):
+        a[f"heat{i}"] = 0
+    a[f"heat{dl.HEAT_BUCKETS - 1}"] = curses.A_BOLD      # mono: hottest stands out
+    try:
+        if curses.has_colors():
+            base = 10                                    # pair ids above the 4 already used
+            if getattr(curses, "COLORS", 0) >= 256:
+                for i, col in enumerate(dl.HEAT_RAMP_256):
+                    curses.init_pair(base + i, col, -1)
+                    a[f"heat{i}"] = curses.color_pair(base + i) | (curses.A_BOLD if i >= 3 else 0)
+            else:                                        # 8/16-colour: no green (means "active")
+                fallback = [(curses.COLOR_BLUE, curses.A_DIM), (curses.COLOR_BLUE, 0),
+                            (curses.COLOR_CYAN, 0), (curses.COLOR_YELLOW, curses.A_BOLD),
+                            (curses.COLOR_RED, curses.A_BOLD)]
+                for i, (col, extra) in enumerate(fallback[: dl.HEAT_BUCKETS]):
+                    curses.init_pair(base + i, col, -1)
+                    a[f"heat{i}"] = curses.color_pair(base + i) | extra
+    except Exception:
+        pass  # ramp unavailable -> heat keys stay at the mono defaults set above
     return a
 
 
@@ -190,7 +217,7 @@ def _clamp_scroll(focus, top, height, n):
 
 
 _ROLE_W = 15          # role column: fits the longest name ("interpreter"/"test-writer") + " 😇"
-_TOK_W = 8            # tokens column (compact, e.g. "1.9M")
+_TOK_W = dl.TOK_CELL_W  # tokens column: heat bar + count, e.g. "███▍   1.9M"
 _STAT_W = 13          # status column
 _FACE_W = 5           # reactive-face column (every face frame is exactly 5 cols)
 _SEP = " │ "          # column separator (│ is width-1 geometric, alignment-safe)
@@ -208,6 +235,10 @@ def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, n
     aligned. `total_h` includes the 2 header rows; the rest are agent rows."""
     model_w = _roster_model_w(maxx)
     frame = int(now * dl.FACE_FPS)                 # animation frame (advances with wall-clock)
+    # Heat denominator: the biggest consumer among the agents SHOWN (i.e. this debate), so
+    # "hottest cell == biggest consumer here" holds at any debate size. Session-wide or
+    # absolute scales flatten small debates into a uniform wash; see debate_lib's heat notes.
+    peak = max((dl.usage_total(x.get("usage") or {}) for x in ordered), default=0)
     # header + rule
     header = ("  " + dl.pad_display("ROLE", _ROLE_W) + _SEP
               + dl.pad_display("MODEL", model_w) + _SEP
@@ -241,15 +272,17 @@ def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, n
         st_key = "active" if status == "active" else "done"
         em = dl.role_emoji(a["role"])                 # sits right after the name
         name = f"{a['role'] or '?'}" + (f" {em}" if em else "")
-        tok = dl.fmt_tokens(dl.usage_total(a.get("usage") or {}))
+        used = dl.usage_total(a.get("usage") or {})
+        tok = dl.tok_cell(used, peak)                 # bar + count, exactly _TOK_W cols
+        heat = f"heat{dl.heat_bucket(used, peak)}"
         fc = dl.face(a["role"], dl.face_state(status, last_kind), frame)  # animated reactive face
         row = [
             (f"{marker} ", "active" if focused else "plain"),
             (dl.pad_display(name, _ROLE_W), "active" if focused else "plain"),
             (_SEP, "dim"),
-            (dl.pad_display(a["model"] or "?", model_w), "dim"),
+            (dl.pad_display(dl.strip_model_prefix(a["model"]) or "?", model_w), "dim"),
             (_SEP, "dim"),
-            (dl.pad_display(tok, _TOK_W), "plain"),
+            (dl.pad_display(tok, _TOK_W), heat),
             (_SEP, "dim"),
             (dl.pad_display(f"{dot} {act}", _STAT_W), st_key),
             (_SEP, "dim"),
@@ -329,7 +362,9 @@ def run_live(stdscr, subagents_dir, label):
         sess_u = dl.blank_usage()                    # token total is session-wide (all agents)
         for a in agents.values():
             sess_u = dl.add_usage(sess_u, a.get("usage") or {})
-        toks = f" · {dl.fmt_tokens(dl.usage_total(sess_u))} tok" if agents else ""
+        # "billed" is not padding: ~98% of this number is cache_read/cache_create, so it
+        # tracks context re-reads (turn count), not how much work an agent actually did.
+        toks = f" · {dl.fmt_tokens(dl.usage_total(sess_u))} tok billed (incl. cache)" if agents else ""
         if show_all:
             scope = f"all {len(ordered)} agent(s)"
         elif clusters:

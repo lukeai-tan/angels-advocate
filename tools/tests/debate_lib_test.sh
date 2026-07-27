@@ -331,6 +331,67 @@ import debate_lib as dl
 assert dl.fmt_tokens(0)=='0' and dl.fmt_tokens(950)=='950'
 assert dl.fmt_tokens(1500)=='1.5k' and dl.fmt_tokens(2_000_000)=='2.0M'
 "
+	pyt "fmt_tokens: never exceeds TOK_NUM_W, incl. the .1f rounding boundary" "
+import debate_lib as dl
+# 999_950 formats as '1000.0k' (7 cols) under a naive '< 1_000_000' check -- it must roll
+# over to the next unit instead. Real agents cross this range on the way past a million.
+assert dl.fmt_tokens(999_950)=='1.0M', dl.fmt_tokens(999_950)
+assert dl.fmt_tokens(999_999)=='1.0M', dl.fmt_tokens(999_999)
+assert dl.fmt_tokens(999_949)=='999.9k', dl.fmt_tokens(999_949)
+assert dl.fmt_tokens(999_950_000)=='1.0B', dl.fmt_tokens(999_950_000)
+# Sweep every unit boundary in BOTH signs: a minus sign costs a column that the .1f
+# rollover threshold does not budget for, so '-999.5k' (7 cols) must promote to '-1.0M'.
+assert dl.fmt_tokens(-999_499)=='-1.0M', dl.fmt_tokens(-999_499)
+cases=[0,1,999,10**9,10**12,10**15,10**18]
+for scale in (10**3,10**6,10**9,10**12):
+    cases += [scale-1, scale, int(999.5*scale), int(999.94*scale), int(999.95*scale), 1000*scale]
+cases += [-c for c in cases]
+cases += list(range(999_940,1_000_060)) + [-n for n in range(999_940,1_000_060)]
+bad=[(n, dl.fmt_tokens(n), dl.display_width(dl.fmt_tokens(n)))
+     for n in cases if dl.display_width(dl.fmt_tokens(n)) > dl.TOK_NUM_W]
+assert not bad, bad[:5]
+"
+	pyt "heat_bucket: in range, monotone, and safe on a zero/None peak" "
+import debate_lib as dl
+B = dl.HEAT_BUCKETS
+assert dl.heat_bucket(0, 100)==0 and dl.heat_bucket(100, 100)==B-1
+assert dl.heat_bucket(500, 100)==B-1           # clamped, never out of range
+assert dl.heat_bucket(50, 0)==0 and dl.heat_bucket(50, None)==0   # nothing to compare against
+assert dl.heat_bucket(-10, 100)==0             # clamped low
+prev=-1
+for v in range(0, 101):                        # monotone: bigger never renders cooler
+    b = dl.heat_bucket(v, 100)
+    assert 0 <= b < B and b >= prev, (v, b, prev)
+    prev = b
+assert len(dl.HEAT_RAMP_256)==B
+"
+	pyt "share_bar/tok_cell: exact display width for every input (TOKENS column never shifts)" "
+import debate_lib as dl
+bad=[]
+peaks=[0, None, 1, 999_950, 1_531_420, 3_517_723, 10**12]
+vals=[0, 1, 153_400, 218_200, 999_949, 999_950, 999_999, 1_100_000, 3_517_723, 10**12, -5]
+for p in peaks:
+    for v in vals:
+        for w in (0, 1, 5, 8):
+            b = dl.share_bar(v, p, w)
+            if dl.display_width(b) != w: bad.append(('bar', v, p, w, b))
+        c = dl.tok_cell(v, p)
+        if dl.display_width(c) != dl.TOK_CELL_W: bad.append(('cell', v, p, c, dl.display_width(c)))
+assert not bad, bad[:5]
+# value > peak clamps to a full bar rather than overflowing the cell
+assert dl.share_bar(200, 100, 5)=='█████'
+# sub-cell eighths keep near neighbours distinguishable
+assert dl.share_bar(153_400, 1_100_000, 5) != dl.share_bar(218_200, 1_100_000, 5)
+"
+	pyt "strip_model_prefix: drops the constant 'claude-', leaves anything else alone" "
+import debate_lib as dl
+assert dl.strip_model_prefix('claude-sonnet-4-5-20250929')=='sonnet-4-5-20250929'
+assert dl.strip_model_prefix('claude-opus-5')=='opus-5'
+assert dl.strip_model_prefix('gpt-4')=='gpt-4'        # non-claude id untouched
+assert dl.strip_model_prefix('')=='' and dl.strip_model_prefix(None)==''
+# the point of the strip: the longest real id now fits the 80-col MODEL column
+assert dl.display_width(dl.strip_model_prefix('claude-sonnet-4-5-20250929')) <= 20
+"
 	# session discovery + token_report end to end over a fake project dir
 	local proj="$WORKDIR/proj/-x-y"; mkdir -p "$proj/S1/subagents"
 	cp "$f" "$proj/S1.jsonl"                # main transcript
