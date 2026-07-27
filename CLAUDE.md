@@ -252,6 +252,22 @@ Arbiter conceding a risk it actually disproved, and quietly corrupts the resolve
 `/journal` and `/gate-audit` report. Use `refuted` **only with evidence** (a reproduction, a
 measurement, a counter-example) — never as a polite way to wave off an attack you merely dislike.
 
+**Lead with the bottom line when the answer is long.** After a structural debate, or any pass that
+folds in multiple agents (verifier, test-writer, researcher), the honest write-up runs long — several
+advocates, a cross-examination, a verification result. Open with a **BOTTOM LINE** of at most three
+lines *before* the detail: what changed, what the reader should be wary of, what is still open.
+
+```
+**BOTTOM LINE** — <what changed / what was decided>
+· <the caveat that would change the reader's mind, if there is one>
+· <what is still open or needs the user's call, if anything>
+```
+
+This is the Arbiter's own job, not a subagent's. If a reply needs a summarizer bolted on to be
+readable, the defect is the reply — reach for brevity first and `/tldr` only for compressing
+*artifacts* (a transcript, a diff, the journal). Do not manufacture a BOTTOM LINE for a short answer;
+like every other block here, length is earned by the content and never by the format.
+
 **Formatting rules (readability).**
 - Lead each speaker's block with its marker glyph (`🔎 😇 😈 ⚖️ ✅`), then bold the label (`😇 **Angel**`).
 - Let a block span as many lines as it needs; put a **blank line between speaker blocks** so they're easy to scan.

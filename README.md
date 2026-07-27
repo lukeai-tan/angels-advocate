@@ -66,7 +66,9 @@ lifecycle to feed it evidence, check correctness, and keep the workflow honest.
    (`.angel-advoc/journal.jsonl`, gitignored, per-machine) — verdict, dealbreakers, and verifier
    outcome — so patterns like recurring dealbreakers or gate under-firing become visible over time.
    Read it back with **`/journal`** (recent decisions) or **`/gate-audit`** (aggregated patterns —
-   recurring dealbreakers, verdicts that failed verification, gate under-firing).
+   recurring dealbreakers, verdicts that failed verification, gate under-firing). **`/tldr`**
+   compresses any long artifact — a debate transcript, the journal, a diff, a file — into a faithful
+   TL;DR that keeps the dealbreakers and caveats rather than smoothing them away.
 
 ### The four lenses
 Every review covers **correctness/risk · approach/design · scope discipline · assumptions** (including
