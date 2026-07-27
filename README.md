@@ -157,7 +157,9 @@ scripted, not left to the model to juggle.
 During a structural debate the advocates run as subagents, out of sight. `tools/debate-view.sh` opens
 a live terminal view of what they're doing — each agent's role, model, and its thinking, tool calls,
 and output as they stream in. It reads the session's subagent transcripts read-only and tails them as
-they grow; run it in a second terminal while a debate is underway. `tools/debate-view.sh --once` prints
+they grow; run it in a second terminal while a debate is underway. The roster's **FACE** column shows
+a tiny reactive face per agent that emotes by what it's doing — thinking, running a tool, writing,
+or resting — and animates only while the agent is active (angel and devil get their own expressions). `tools/debate-view.sh --once` prints
 a one-shot dump instead of the live view (and is what runs automatically when there's no TTY). Agent
 "active/done" status is an mtime heuristic — Claude Code emits no explicit finished signal — and the
 view labels it as such.

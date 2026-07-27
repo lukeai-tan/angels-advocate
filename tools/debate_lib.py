@@ -69,6 +69,57 @@ def activity_label(last_kind):
     return _ACTIVITY.get(last_kind or "", "…")
 
 
+# --- reactive roster faces ---------------------------------------------------
+# A tiny animated face per agent that emotes by state (thinking / running a tool /
+# writing / idle). Angel and devil get character-flavoured faces; every other role
+# shares a neutral set. EVERY frame is exactly 5 display columns — parens + a 3-char
+# middle — so the roster's FACE column never shifts (same width discipline that fixed
+# the emoji-alignment bugs; enforced by a test). Frames cycle only while active; idle
+# is a single static frame, so a quiet roster doesn't twitch.
+FACE_FPS = 2.0  # frame changes per second (matches the ~0.5s viewer poll)
+
+_FACES = {
+    "angel": {                                       # soft, blissful
+        "thinking": ["(-‸-)", "(˘‸˘)", "(ˆ‸ˆ)"],
+        "tool":     ["(o‸o)", "(O‸O)"],
+        "writing":  ["(^‿^)", "(^o^)"],
+        "idle":     ["(-‿-)"],
+    },
+    "devil": {                                       # sharp, scheming, smug
+        "thinking": ["(¬‸¬)", "(-‸-)", "(¬‸¬)"],
+        "tool":     ["(ò‸ó)", "(ō‸ō)"],
+        "writing":  ["(¬‿¬)", "(¬◡¬)"],
+        "idle":     ["(¬_¬)"],
+    },
+    "_default": {                                    # neutral (verifier, researcher, …)
+        "thinking": ["(·.·)", "(-.-)"],
+        "tool":     ["(o.o)", "(O.O)"],
+        "writing":  ["(^.^)", "(·.·)"],
+        "idle":     ["(-_-)"],
+    },
+}
+
+
+def face_state(status, last_kind):
+    """Map (heuristic status, last event kind) -> a face state. 'active' agents emote by
+    what they're doing; anything not active is 'idle'."""
+    if status != "active":
+        return "idle"
+    if last_kind in ("tool_use", "tool_result"):
+        return "tool"
+    if last_kind == "text":
+        return "writing"
+    return "thinking"  # thinking / prompt / unknown
+
+
+def face(role, state, frame=0):
+    """A 5-display-column face for a role in a given state. `frame` cycles animation
+    frames (ignored for idle, which is static)."""
+    role_set = _FACES.get(role if role in _FACES else "_default", _FACES["_default"])
+    frames = role_set.get(state) or role_set["idle"]
+    return frames[frame % len(frames)]
+
+
 def sec_head(kind):
     """Plain-text detail/dump section header ('thinking' / 'output' / 'tool')."""
     return {"thinking": "thinking", "output": "output", "tool": "tool"}.get(kind, kind)

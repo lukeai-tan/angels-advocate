@@ -192,12 +192,13 @@ def _clamp_scroll(focus, top, height, n):
 _ROLE_W = 15          # role column: fits the longest name ("interpreter"/"test-writer") + " 😇"
 _TOK_W = 8            # tokens column (compact, e.g. "1.9M")
 _STAT_W = 13          # status column
+_FACE_W = 5           # reactive-face column (every face frame is exactly 5 cols)
 _SEP = " │ "          # column separator (│ is width-1 geometric, alignment-safe)
 
 
 def _roster_model_w(maxx):
     """Width of the model column, filling what's left after the fixed columns."""
-    return max(8, maxx - 1 - 2 - _ROLE_W - _TOK_W - _STAT_W - 3 * len(_SEP))
+    return max(8, maxx - 1 - 2 - _ROLE_W - _TOK_W - _STAT_W - _FACE_W - 4 * len(_SEP))
 
 
 def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, now):
@@ -206,12 +207,14 @@ def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, n
     display-aware padding, so the angel/devil emoji (placed right after the name) keeps the columns
     aligned. `total_h` includes the 2 header rows; the rest are agent rows."""
     model_w = _roster_model_w(maxx)
+    frame = int(now * dl.FACE_FPS)                 # animation frame (advances with wall-clock)
     # header + rule
     header = ("  " + dl.pad_display("ROLE", _ROLE_W) + _SEP
               + dl.pad_display("MODEL", model_w) + _SEP
-              + dl.pad_display("TOKENS", _TOK_W) + _SEP + "STATUS")
+              + dl.pad_display("TOKENS", _TOK_W) + _SEP
+              + dl.pad_display("STATUS", _STAT_W) + _SEP + "FACE")
     _safe_addstr(win, top_y, 0, header[: maxx - 1], attrs["hdr"])
-    rule_w = min(maxx - 1, 2 + _ROLE_W + _TOK_W + _STAT_W + 3 * len(_SEP) + model_w)
+    rule_w = min(maxx - 1, 2 + _ROLE_W + _TOK_W + _STAT_W + _FACE_W + 4 * len(_SEP) + model_w)
     _safe_addstr(win, top_y + 1, 0, "─" * rule_w, attrs["dim"])
 
     body_y = top_y + 2
@@ -233,11 +236,13 @@ def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, n
         else:
             marker = " "
         dot = "*" if status == "active" else " "     # ASCII status flag (width-stable)
-        act = dl.activity_label(a["events"][-1]["kind"]) if (status == "active" and a["events"]) else "done"
+        last_kind = a["events"][-1]["kind"] if a["events"] else None
+        act = dl.activity_label(last_kind) if (status == "active" and a["events"]) else "done"
         st_key = "active" if status == "active" else "done"
         em = dl.role_emoji(a["role"])                 # sits right after the name
         name = f"{a['role'] or '?'}" + (f" {em}" if em else "")
         tok = dl.fmt_tokens(dl.usage_total(a.get("usage") or {}))
+        fc = dl.face(a["role"], dl.face_state(status, last_kind), frame)  # animated reactive face
         row = [
             (f"{marker} ", "active" if focused else "plain"),
             (dl.pad_display(name, _ROLE_W), "active" if focused else "plain"),
@@ -247,6 +252,8 @@ def _draw_roster(win, ordered, focus, roster_top, top_y, total_h, attrs, maxx, n
             (dl.pad_display(tok, _TOK_W), "plain"),
             (_SEP, "dim"),
             (dl.pad_display(f"{dot} {act}", _STAT_W), st_key),
+            (_SEP, "dim"),
+            (dl.pad_display(fc, _FACE_W), st_key),
         ]
         _render_row(win, body_y + row_i, 0, row, attrs, maxx)
 

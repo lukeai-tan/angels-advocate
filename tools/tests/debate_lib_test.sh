@@ -262,6 +262,36 @@ for r in rows:
 styled = dl.wrap_segments([('keep','b')], 40)
 assert styled[0][-1] == ('keep','b'), styled  # style survives wrapping
 "
+	pyt "reactive faces: every frame is exactly 5 display cols (roster FACE column never shifts)" "
+import debate_lib as dl
+bad = []
+for role, states in dl._FACES.items():
+    for state, frames in states.items():
+        for fr in frames:
+            w = dl.display_width(fr)
+            if w != 5:
+                bad.append((role, state, fr, w))
+assert not bad, bad
+# every real role resolves to a face set; unknown roles fall back to neutral
+for role in list(dl.ROLE_EMOJI) + ['angel','devil','verifier','unknown-role', None]:
+    for st in ('thinking','tool','writing','idle'):
+        assert dl.display_width(dl.face(role, st, 0)) == 5, (role, st)
+"
+	pyt "reactive faces: state mapping + animation cycles only while active" "
+import debate_lib as dl
+assert dl.face_state('active','tool_use') == 'tool'
+assert dl.face_state('active','tool_result') == 'tool'
+assert dl.face_state('active','text') == 'writing'
+assert dl.face_state('active','thinking') == 'thinking'
+assert dl.face_state('active','prompt') == 'thinking'   # unknown/briefed -> thinking
+assert dl.face_state('done','tool_use') == 'idle'       # not active -> idle regardless
+assert dl.face_state('active', None) == 'thinking'
+# idle is static across frames; an active multi-frame state actually changes
+assert dl.face('angel','idle',0) == dl.face('angel','idle',9)
+assert dl.face('angel','thinking',0) != dl.face('angel','thinking',1)
+# frame index wraps (never IndexErrors)
+assert dl.face('devil','tool',1000) in dl._FACES['devil']['tool']
+"
 }
 
 # ---------------------------------------------------------------------------
