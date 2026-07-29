@@ -18,8 +18,9 @@ as the Devil argues against it.
 
 ## The roles
 
-The four core roles carry the debate; a set of optional support agents run at specific points in the
-lifecycle to feed it evidence, check correctness, and keep the workflow honest.
+The four core roles carry the debate; optional support agents run at specific points in the lifecycle
+to feed it evidence, check correctness, and keep the workflow honest; and a `builder` executor lets the
+Arbiter delegate parallel-independent build work.
 
 | Role | Job |
 |---|---|
@@ -29,6 +30,7 @@ lifecycle to feed it evidence, check correctness, and keep the workflow honest.
 | ✅ **Verifier** | The loop-closer. *After* the Arbiter acts, checks the work matched the verdict: each "resolved" dealbreaker landed, each "accepted" one wasn't silently worked around, nothing drifted out of scope. Runs **cross-model** by default (a different model than the Arbiter), so it's de-anchoring conformance *plus* **partial** independent QA — not full QA, but no longer sharing every blind spot. |
 | 🔬 **Researcher** *(optional)* | Read-only evidence-gatherer. Runs **in parallel** with the advocates on evidence-heavy debates — reproductions, measurements, blast radius, external docs — and hands its `FINDINGS` to both so they argue from shared ground truth. Never takes a side or rules. |
 | 🧪 **Test-Writer** *(optional)* | Runs **in parallel** with the verifier after a verdict is acted on, answering *does the code actually work?* (vs. the verifier's *did it conform?*). Adaptive: durable tests when there's a real surface, an honest "nothing to test" for prose/config. |
+| 🔨 **Builder** *(optional)* | Executor. The Arbiter delegates one self-contained build unit to it — Edit/Write/Bash, **inherits** the Arbiter's model, stays strictly in the briefed scope, verifies where cheap, and reports exactly what changed (stops-and-asks on ambiguity rather than guessing). Fan out one per file-disjoint unit to build in parallel; coupled, context-heavy work stays with the Arbiter. Returns a `BUILD REPORT`, never a verdict. |
 | 🏛️ **Historian** *(optional)* | Read-only. *Before* a debate, mines the decision journal + git history for `PRECEDENT` — similar past calls, recurring dealbreakers, verdicts that later failed. Gives the workflow an active memory. Never takes a side. |
 | 🧭 **Interpreter** *(optional)* | Read-only, **cross-model**. Fires on the *wrong-problem* gate: when a request is ambiguous, returns 2–4 `INTERPRETATIONS` and the one question that resolves them — so the workflow doesn't build the wrong thing correctly. Hands the fork over; never picks. |
 | 🛡️ **Red-Teamer** *(optional)* | A security-specialized Devil, **cross-model**. Attacks only the security surface — injection, secrets, authz, path/shell, deserialization, SSRF, supply-chain, unsafe defaults — and reproduces the exploit where it safely can. Returns `SECURITY FINDINGS`. |
@@ -52,7 +54,11 @@ lifecycle to feed it evidence, check correctness, and keep the workflow honest.
      **Forked** decisions get a dedicated shape: one steelman per approach + one Devil across all, and
      a verdict that *picks* the winner (and can graft a runner-up's best idea onto it).
 3. **Every gated decision ends in an accountable verdict** — a rigor line (how much scrutiny this
-   got), the two cases, and a verdict that disposes of each Devil dealbreaker *by name*.
+   got), the two cases, a verdict that disposes of each Devil dealbreaker *by name*, and a
+   **falsifier**: the one fact that, if it turned out true, would flip the ruling. `tools/verdict-lint.py`
+   mechanically checks a structural-debate verdict against the Devil's own transcript — every raised
+   dealbreaker disposed of, every `refuted` backed by evidence — a gap the verifier can't cover because
+   it never sees that transcript.
 4. **The loop closes after the doing.** Once the Arbiter acts on a consequential verdict, it spawns
    the `verifier` — a read-only, fresh-context, **cross-model** pass that checks the work *conformed*
    to the ruling: resolved dealbreakers actually landed, accepted ones weren't silently worked around,
@@ -60,42 +66,60 @@ lifecycle to feed it evidence, check correctness, and keep the workflow honest.
    enforcement (catches the Arbiter defending its own closed call) **plus partial independent QA** (it
    no longer shares every blind spot) — though still not *full* QA, and it says so. Execution stays
    with the Arbiter, which holds the full context and the live tree; only the *check* is delegated.
-   *(This independence assumes the Arbiter runs on Opus and the checks on Sonnet — the shipped config.
-   Run a different Arbiter model? Flip `model:` in `devil.md`/`verifier.md` so they never match it.)*
+   *(This independence assumes the Arbiter on Opus and the four cross-model checks —
+   `devil`/`verifier`/`red-teamer`/`interpreter` — on Sonnet; the shipped default is an Opus 4.8
+   Arbiter with Sonnet 4.6 checks. `tools/preflight.sh <model>` verifies the config before a debate and
+   `debate-view.sh --check-independence` the runtime after; `/self-check` folds the preflight in. Run a
+   different Arbiter model? Flip `model:` in those four files so they never match it.)*
 5. **The workflow remembers.** Each gated decision is appended to a decision journal
    (`.angel-advoc/journal.jsonl`, gitignored, per-machine) — verdict, dealbreakers, and verifier
    outcome — so patterns like recurring dealbreakers or gate under-firing become visible over time.
    Read it back with **`/journal`** (recent decisions) or **`/gate-audit`** (aggregated patterns —
    recurring dealbreakers, verdicts that failed verification, gate under-firing). **`/tldr`**
    compresses any long artifact — a debate transcript, the journal, a diff, a file — into a faithful
-   TL;DR that keeps the dealbreakers and caveats rather than smoothing them away.
+   TL;DR that keeps the dealbreakers and caveats rather than smoothing them away. **`/self-check`** runs
+   every integrity harness at once — the calibration fixtures that prove the checkers aren't
+   rubber-stamping, the cross-model preflight guard, and the gate under-fire sweep — behind one
+   green/red answer.
 
-### The four lenses
-Every review covers **correctness/risk · approach/design · scope discipline · assumptions** (including
-"is this even the right problem?"). The `angel` and `devil` agent files are the source of truth.
+### The five lenses
+Every review covers **correctness/risk · approach/design (incl. maintainability) · scope discipline ·
+assumptions** (including "is this even the right problem?") **· caller/consumer ergonomics**. The
+`angel` and `devil` agent files are the source of truth.
 
 ## Layout
 
 ```
-CLAUDE.md                       The Arbiter — gate, modes, four lenses, output format
+CLAUDE.md                       The Arbiter — gate, modes, five lenses, output format (+ falsifier)
 .claude/agents/
   angel.md  devil.md            The two core advocates
   verifier.md                   Post-implementation conformance check (cross-model)
+  builder.md                    Executor — delegate a scoped build unit (inherits model)
   researcher.md  test-writer.md Optional investigators (may fan out helpers)
   historian.md  interpreter.md  Optional: memory, ambiguity-resolution (cross-model)
   red-teamer.md  profiler.md    Optional: security attack (cross-model), perf/cost
   scribe.md  tldr.md            Optional: doc sync, summarization
+  reversibility.md              Non-rostered manual tool (recovery-story attack; folded into devil)
 .claude/commands/
   journal.md  gate-audit.md     Read/aggregate the decision journal
-  debate-view.md                Inline snapshot of the live debate subagents
+  self-check.md                 Run every integrity check at once
+  debate-view.md  debate-window.md  debate-gui.md   Watch the live debate (inline / window / browser)
+  tldr.md                       Compress a long artifact
 .claude/workflows/
   angel-advoc-sweep.js          One debate per changed file, in parallel
+  parallel-debate.js            One decision, fanned across a Devil lens-panel + advocates
+  build-sweep.js                Decompose a change into disjoint units, build in parallel, verify
 tools/
-  journal.sh                    Append a gated decision to the journal
-  journal-report.sh             Reader behind /journal and /gate-audit
-  debate-view.sh / *.py         Watch subagents think/act/answer, live in the terminal
+  journal.sh / journal-report.sh   Append / read the decision journal
+  verdict-lint.py               Lint a verdict's Dealbreakers block (coverage vs the Devil + evidence)
+  preflight.sh                  Static cross-model config guard (run before a structural debate)
+  self-check.sh                 Consolidated integrity run (tests + preflight + gate-sweep)
+  gate-sweep.sh                 Scan recent commits for gate under-fires
+  verifier-calibration.sh       Prove the verifier isn't rubber-stamping (checked-in fixtures)
+  token-report.sh               Per-session / per-subagent token + cost totals
+  debate-view.sh / debate-gui.sh / *.py   Watch subagents live (terminal / loopback browser)
   debate-window.sh              Auto-open the viewer in a separate window on spawn (WSL/wt.exe)
-  tests/                        Regression suites (bash + python3, no framework)
+  tests/                        Regression + calibration suites (bash + python3, no framework)
 ```
 
 ## Using it
@@ -141,7 +165,8 @@ repo's `.claude/agents/`, so improving an agent here updates the global command 
 source of truth. The tradeoff: **don't move, rename, or delete this repo**, or the symlinks dangle
 and `/angel-advoc` breaks elsewhere. (Prefer robustness over auto-sync? Use plain copies instead and
 re-copy when you edit an agent.) The cross-model independence assumes an **Opus** main model; on a
-Sonnet main model, flip `model:` in `devil.md`/`verifier.md` to `opus`.
+Sonnet main model, flip `model:` in the four cross-model files (`devil`/`verifier`/`red-teamer`/`interpreter`)
+to `opus`, and confirm with `tools/preflight.sh <model>`.
 
 ### Fan out across a whole diff — the `angel-advoc-sweep` workflow
 
@@ -153,6 +178,25 @@ Invoke it via the Workflow tool (optionally pass a base ref like `main` to diff 
 current uncommitted diff). This is deterministic orchestration, which is why it's a workflow script
 rather than a prompt-driven command — the fan-out, concurrency cap, and structured collection are
 scripted, not left to the model to juggle.
+
+### Widen a single debate — the `parallel-debate` workflow
+
+For one heavy or forked decision, `.claude/workflows/parallel-debate.js` widens the attack instead of
+the file set: an Angel, **one cross-model Devil per lens** (a lens-panel), plus a Researcher and
+Historian all run in parallel, then one cross-examination round, then it hands the collected material
+back for the Arbiter to rule — it never rules itself ("the debate informs; the Arbiter decides"). Five
+independent adversaries, each on its own lens, surface what a single Devil misses. An optional final
+phase fans `builder`s out (worktree-isolated) to implement the ruling.
+
+### Build in parallel — the `build-sweep` workflow and the `builder` role
+
+Execution stays with the Arbiter *by default* — it holds the full conversation and the live tree, so
+tightly-coupled, context-heavy work is built inline (a subagent knows less). But **parallel-independent**
+work pays to delegate: `.claude/workflows/build-sweep.js` decomposes a ruled change into **file-disjoint**
+units, builds each with its own `builder` in parallel, and verifies the combined result — self-integrating
+with *no merge step*, because no two builders ever touch the same file. Work that can't be split into
+disjoint files is coupled, not parallelisable — which is exactly why it stays with the Arbiter, not a
+limitation to route around.
 
 ### Watch the debate live — `debate-view`
 
@@ -202,6 +246,17 @@ For a quick inline peek from *inside* a Claude Code session, `/debate-view` runs
 relays it — handy when you don't have a second terminal open. (The live, updating view still needs a
 real terminal, since a slash command can't host the curses UI.)
 
+### …or watch it in the browser — `debate-gui`
+
+`tools/debate-gui.sh` (or `/debate-gui`) serves the **same** `debate_lib.snapshot()` data as a local,
+**loopback-only** web page — `127.0.0.1` only, read-only over the transcripts, nothing sent anywhere,
+transcript text rendered as DOM text so nothing in it can inject. It's a master–detail layout: the
+compact agent rail on the left, the selected agent's transcript at full height on the right, a
+collapsible Steins;Gate-style **world-lines** timeline (each agent a glowing line branching off a shared
+spine, coloured by model *family* so cross-model independence is visible at a glance), and the same
+independence badge. The launcher runs the server detached on a stable port and prints the URL. Prefer
+the terminal viewer over SSH; reach for the browser view when a GUI is simply handier.
+
 **Auto-open the viewer in its own window (WSL).** `tools/debate-window.sh` pops the live viewer in a
 **separate Windows Terminal window** so you never have to remember to open a second terminal. Two ways
 to trigger it:
@@ -222,8 +277,12 @@ This workflow is built to resist its own worst failure mode — *theater*: a dec
 costume of scrutiny it never received. Hence the honest rigor labels, the mandatory dealbreaker
 accounting, the symmetric advocate formats (neither side is structurally pushed to over- or
 under-claim), the reproduce-when-you-can grounding rule, and — the sharpest cut against theater —
-**cross-model checks**: the `devil` and `verifier` run on a different model than the Arbiter, so
-"independent" review is independent in fact and not just in name. That independence has one honest
-precondition, stated everywhere it matters: it holds only while those agents' model differs from the
-Arbiter's, and the files say so rather than letting a same-model pass wear the costume. The agents
-have been run against their own design to harden them.
+**cross-model checks**: the `devil`, `verifier`, `red-teamer`, and `interpreter` run on a different
+model than the Arbiter, so "independent" review is independent in fact and not just in name. That
+independence has one honest precondition, stated everywhere it matters: it holds only while those
+agents' model differs from the Arbiter's, and the files say so rather than letting a same-model pass
+wear the costume — with `preflight.sh` and `--check-independence` there to *prove* it rather than
+assume it. The same anti-theater instinct runs through the tooling: `verdict-lint` catches a verdict
+that silently drops a dealbreaker, and calibration fixtures (run via `/self-check`) prove the verifier
+and the lint aren't just rubber-stamping. The agents have been run against their own design to harden
+them.
