@@ -127,10 +127,10 @@ trigger actually fires, never as reflexive ceremony.
   with nothing user-facing. Inherits the model; has Edit/Write scoped to docs (the verifier's scope-drift
   check covers it, same precedent as `test-writer`).
 
-The two cross-model roles (`interpreter`, `red-teamer`) follow the same independence rule and the same
-one assumption as `devil`/`verifier` below — and, like all cross-model roles, they deliberately do
-**not** carry the `Agent` tool (a nested helper would inherit the Arbiter's model and collapse the
-independence). `historian`, `profiler`, and `scribe` inherit the Arbiter's model.
+The two cross-model roles (`interpreter`, `red-teamer`) follow the same independence
+rule and the same one assumption as `devil`/`verifier` below — and, like all cross-model roles, they
+deliberately do **not** carry the `Agent` tool (a nested helper would inherit the Arbiter's model and
+collapse the independence). `historian`, `profiler`, and `scribe` inherit the Arbiter's model.
 
 **Cross-model independence (and its one assumption).** The `devil`, `verifier`, `red-teamer`, and
 `interpreter` agent files pin `model:` to a model *different from the Arbiter's*, which is what makes

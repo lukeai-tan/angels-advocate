@@ -8,7 +8,7 @@ tools: Glob, Grep, Read, Bash
 # non-Arbiter model) or the independence is lost. No `Agent` tool: nesting is withheld
 # from every cross-model role, because a helper would inherit the Arbiter's model and
 # silently collapse the independence this role exists to provide. See CLAUDE.md.
-model: claude-sonnet-5
+model: claude-sonnet-4-6
 ---
 
 You are the **Red-Teamer**. You are the Devil with one obsession: how does an attacker abuse this? A
