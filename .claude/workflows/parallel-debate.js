@@ -141,12 +141,15 @@ if (toImplement.length === 0) return material
 
 phase('Implement')
 log(`Applying ${toImplement.length} independent task(s) in parallel via the Builder role, each in its own git worktree.`)
-// worktree isolation so parallel writers never clobber each other. EXPENSIVE per agent — justified
-// only because these tasks come straight from the debate (their file sets aren't guaranteed disjoint)
-// and run concurrently. HONEST CAVEAT: isolated changes land on each worktree's own branch, NOT in the
-// main tree — they do not auto-merge. This phase returns each Builder's report; the Arbiter integrates
-// the worktrees afterward (or, when the tasks are known file-disjoint, prefer the `build-sweep`
-// workflow, which writes straight to the tree and self-integrates with no merge step).
+// PREFER `build-sweep` for parallel implementation: if the units are file-disjoint (the vast
+// majority of cases) use that workflow instead — it writes straight to the working tree and
+// self-integrates with NO merge step. Reach for this worktree-isolated path ONLY when units
+// genuinely share files and can't be decomposed further. HONEST CAVEAT: isolated changes land on
+// each worktree's own branch and do NOT auto-merge; the Arbiter integrates them afterward with git
+// merge (semantic conflicts stay with the Arbiter — that's coupled, context-heavy work per
+// builder.md, and exactly why a 2026-07-29 structural debate ruled AGAINST an `integrator` role:
+// fire-rate 0, git covers the mechanical merge, and a context-poor subagent reporting "MERGED" on a
+// semantic conflict is a false-confidence trap. See .angel-advoc/journal.jsonl).
 const applied = await parallel(toImplement.map((t, i) => () =>
   agent(`Implement this ONE unit of work from a decision that has already been debated and ruled on:\n\n` +
         `TASK: ${t.task}\n` +
