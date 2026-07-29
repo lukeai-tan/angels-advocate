@@ -208,13 +208,20 @@ work stay post-hoc auditable there — the same trail `/gate-audit`-style inspec
 
 ---
 
-## The four lenses
+## The five lenses
 
 Angel argues the affirmative, Devil the adversarial, for each. (Canonical definitions live in the
 `angel` and `devil` agent files — keep them as the source of truth; this is a pointer, not a
 restatement.)
 
-**Correctness/risk · Approach/design · Scope discipline · Assumptions (incl. "is this even the right problem?")**
+**Correctness/risk · Approach/design (incl. maintainability) · Scope discipline · Assumptions (incl. "is this even the right problem?") · Caller/consumer ergonomics**
+
+The **caller/consumer ergonomics** lens (added 2026-07-29) is the folded-in residue of a proposed
+"consumer/UX advocate" role: a structural debate found the axis real but firing too rarely (~7–13% of
+gated decisions, 0/15 non-redundant on structural debates) to justify a standing round-1 role — so it
+lives as a lens both advocates carry, not an agent. **Integration/blast-radius** lives in the
+`researcher` role (it already greps the blast radius); **maintainability/complexity** rides in the
+approach/design lens. None of these three adds a roster entry or cross-model surface — that was the point.
 
 ---
 
@@ -277,6 +284,20 @@ The **Rigor line** keeps the format honest: it tells the user exactly how much s
 polish never stands in for independence. The **Dealbreakers block** is mandatory — every dealbreaker
 the Devil raised must be disposed of *by name*; a verdict may not silently drop one.
 
+**Lint the block after a structural debate — `tools/verdict-lint.py`.** The `verifier` is handed only
+the Dealbreakers *line*, never the Devil's raw transcript, so by construction it cannot notice that a
+dealbreaker the Devil actually raised was silently dropped from the block. This lint closes that gap
+mechanically: it checks (1) coverage — the block disposes of at least as many items as the Devil
+raised (pass the Devil's `agent-<id>.jsonl`, which it reads assistant-only so your own prompt wording
+can't inflate the count); (2) every bullet carries a recognised disposition; (3) every `refuted` cites
+evidence (the CLAUDE.md rule, now enforced). Run it on any structural-debate verdict before you act:
+`tools/verdict-lint.py --devil <devil-transcript.jsonl> <verdict-block.md>` (exit 1 on any FAIL). It
+is a script + this rule — the tldr precedent for "audit the Arbiter's own output" — deliberately NOT a
+standing agent: a 2026-07-29 structural debate found the *reasoning*-audit version (anchoring,
+manufactured balance) unfalsifiable from a transcript and rejected it; only this checkable slice
+survived. Calibrated by `tools/tests/verdict_lint_test.sh` (5 known-bad it must flag, 3 controls it
+must pass) — run it occasionally so the lint isn't rubber-stamping.
+
 ### Forked-decision format (comparing 2+ approaches)
 
 The format above defends *one* direction — it has a single Angel and can't hold a comparison. When
@@ -318,9 +339,21 @@ accepted risk someone "helpfully" worked around anyway, the scope that crept pas
 Deciding well and then not checking the doing is its own kind of theater.
 
 So: **after you have acted on a gated verdict that produced dealbreakers or a non-trivial diff, run a
-verification pass.** Execution stays with *you* (the Arbiter) — you hold the full conversation and the
-live working tree, so you build; a subagent would only know less. But the *check* benefits from fresh,
-unanchored context, so delegate it:
+verification pass.**
+
+**Execution is yours by default — delegate only what parallelises.** You (the Arbiter) hold the full
+conversation and the live working tree, so *tightly-coupled, context-heavy* work you build **inline**: a
+`builder` subagent starts with less context, and a guess it makes is one you then have to find and undo.
+But two kinds of build work genuinely pay to delegate to the `builder` role (Edit/Write/Bash, inherits
+your model): **parallel-independent units** — fan out one Builder per *disjoint-file* unit for a real
+wall-clock win (the `build-sweep` workflow does exactly this: decompose → parallel Builders → verify,
+self-integrating because the units share no files), and **large mechanical sweeps** — offload to keep
+your own context clean. Builders get no `Agent` tool (you orchestrate the fan-out; they don't nest) and
+inherit your model (they execute, they don't judge — no cross-model independence to protect, unlike the
+`devil`/`verifier`). Coupled work that can't be split into disjoint files isn't parallelisable — that's
+not a limitation to route around, it's the reason it stays with you.
+
+The *check*, by contrast, always benefits from fresh, unanchored context, so delegate it:
 
 - Spawn the `verifier` subagent. Hand it the raw material — the **verdict's Dealbreakers line
   verbatim**, the **actual diff**, and the **user's verbatim request** — never your paraphrase (same

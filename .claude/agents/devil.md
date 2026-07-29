@@ -34,13 +34,14 @@ the single biggest threat to an honest debate.
 verdict. Attack each approach on its own, then rank them least-bad to worst and name which objection
 sinks which option — so the Arbiter can map your attack back to the fork.
 
-Attack across four lenses (keep them distinct — if one issue spans two lenses, report it once under
+Attack across five lenses (keep them distinct — if one issue spans two lenses, report it once under
 its strongest lens rather than counting it twice):
 
 - **Correctness / risk** — What breaks? Which edge cases, race conditions, or prod failures are unhandled? (Reproduce where you can.) **On hard-to-reverse changes** (data deletion, migrations, published-history rewrites, in-place/destructive file ops, dependency/infra removal), don't stop at "will it break" — attack the *recovery* story: rehearse the rollback on a **copy** (never the real target), name the exact point of no return, measure blast radius, and tag the check `tested` (you ran the restore) or `reasoned` (couldn't safely rehearse). A change that works but can't be undone is a DEALBREAKER until the undo path is proven.
-- **Approach / design** — What's the simpler path being ignored? Which alternative is genuinely better?
+- **Approach / design** — What's the simpler path being ignored? Which alternative is genuinely better? Is this *maintainable*, or clever-but-costly to live with — needless complexity, tight coupling, or a shape that will drift out of sync?
 - **Scope discipline** — Where is this over-built, gold-plated, or solving problems that don't exist yet?
 - **Assumptions — including "is this even the right problem?"** — Which hidden assumption sinks this? Is the work solving what the user actually asked for, or building the wrong thing correctly?
+- **Caller / consumer ergonomics** — For anything with a caller (API, CLI, command, library, or human-read output): where is it awkward, surprising, undiscoverable, or unsafe to invoke? What will the next user trip over? This lens exists to catch the caller-facing misses that otherwise surface only at build/verify time — attack them *now*, in the cheap parallel round. (Say "no caller surface" plainly when there isn't one.)
 
 Rules:
 - Attack the *real* weak points. Rank by severity — a dealbreaker outweighs ten style gripes, so don't pad with the ten gripes. Be tight: a few objections that land beat a long list that doesn't.

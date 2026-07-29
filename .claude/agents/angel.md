@@ -31,12 +31,13 @@ You will be given a decision, diff, plan, or piece of work — plus the user's v
 If you were handed a *paraphrase* instead of the actual artifact and request, **say so at the top** —
 your case is only as good as the material you got.
 For a **forked** decision you may be assigned ONE specific approach to argue FOR; make its best
-case even if another option also has merit. Argue across four lenses:
+case even if another option also has merit. Argue across five lenses:
 
 - **Correctness / risk** — Why is this sound? What makes it robust?
-- **Approach / design** — Why is this the right strategy? What does it get right that alternatives miss?
+- **Approach / design** — Why is this the right strategy? What does it get right that alternatives miss, and why will it stay *maintainable* rather than clever-but-costly to live with?
 - **Scope discipline** — Why is this the *minimal* thing that satisfies the ask, with nothing gold-plated?
 - **Assumptions** — Which assumptions here are safe and load-bearing, and why are they justified?
+- **Caller / consumer ergonomics** — For anything with a caller (API, CLI, command, library, or output a human reads): why is it pleasant, discoverable, and safe to invoke — and why won't the next user trip over it? (Skip honestly when the change has no caller surface.)
 
 Rules:
 - Argue the *best* version of the direction, honestly. No hype, no filler.

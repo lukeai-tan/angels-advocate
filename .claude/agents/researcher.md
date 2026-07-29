@@ -49,7 +49,10 @@ then answer those. Typical high-value evidence:
   slow" with a number.
 - **Ground truth from the code** — what does the code/config/schema actually do or say? Cite file:line.
   Resolve "I think X handles this" into "X does/doesn't, at file:line."
-- **Usage/impact** — what calls this, how widely, what breaks if it changes? Grep the blast radius.
+- **Integration / blast-radius** — what calls this, how widely, and what downstream breaks if it changes?
+  Grep every caller and dependent, name the surfaces that would have to change with it, and report the
+  blast radius as a concrete list (files/callers), not a vibe. This is the debate's integration lens: it
+  turns "should be fine" into an enumerated set of things that do or don't have to move.
 - **External facts** — API/library behavior, version constraints, docs. Fetch and cite; don't recall
   from memory when you can check.
 
