@@ -48,6 +48,7 @@ ROLE_EMOJI = {
     "historian": "📚",
     "scribe": "📝",
     "test-writer": "🧪",
+    "builder": "🔨",
     # tldr omitted deliberately: its ✂️ carries a U+FE0F variation selector that many
     # terminals render as a narrow (width-1) text glyph while display_width() counts 2,
     # shifting the ROLE column. Same failure — and same fix (render plain) — as red-teamer's

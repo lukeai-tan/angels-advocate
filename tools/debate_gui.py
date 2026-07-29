@@ -386,6 +386,7 @@ let showWL = false;   // whether the full-width World Lines panel is open above 
 let sessionId = null; // selected session; null = whatever the server was launched with
 let sessions = [];
 let _lastDetailSel = null;   // which agent the transcript last showed (to preserve scroll)
+let _lastRenderSig = null;   // signature of the last-rendered data; skip rebuild when unchanged
 
 function key(a){ return a.id; }   // role+model would conflate two agents sharing both
 
@@ -402,7 +403,7 @@ function roleLabels(agents){
 }
 
 const ROLE_EMOJI = { angel:"😇", devil:"😈", arbiter:"⚖️", verifier:"✅", researcher:"🔎",
-  interpreter:"🧭", profiler:"📊", historian:"📚", scribe:"📝", "test-writer":"🧪" };
+  interpreter:"🧭", profiler:"📊", historian:"📚", scribe:"📝", "test-writer":"🧪", builder:"🔨" };
 // mirrors debate_lib.IND_MARKS — glyph + tooltip per independence state
 const IND = { ok:["√","independent — different model family than the arbiter"],
   collapse:["×","COLLAPSED — same model family as the arbiter; independence lost"],
@@ -805,6 +806,21 @@ function renderSessions(){
   }
 }
 
+// A cheap signature of everything the rail + transcript actually render. If it's unchanged
+// between polls, render() skips the DOM rebuild entirely and the user's scroll is left alone —
+// this is the real fix for "scroll resets every tick" (and it means a finished debate, whose
+// data never changes again, is never rebuilt at all while you read it).
+function renderSig(){
+  if (!snap || !snap.agents) return "none";
+  const a = snap.agents.find(x => key(x) === sel);
+  const rows = snap.agents.map(x =>
+    x.id + ":" + x.status + ":" + (x.activity || "") + ":" + usageTotal(x.usage) +
+    ":" + (x.duration_sec || 0) + ":" + (x.heat || 0) + ":" + (x.tok_share || 0)).join("|");
+  return rows + "##sel=" + sel + "##ev=" + (a ? a.events.length : -1) +
+         "##wl=" + showWL + "##ind=" + (snap.independence ? snap.independence.status : "") +
+         "##lbl=" + (snap.label || "");
+}
+
 function render(){
   renderSessions();
   document.getElementById("arb").textContent =
@@ -839,6 +855,14 @@ function render(){
   document.getElementById("tcount").textContent =
     n ? n + " agent" + (n === 1 ? "" : "s") : "";
 
+  // Change-guard: only rebuild the scrollable panes (rail + transcript) when their data actually
+  // changed. On an unchanged poll — the common case, and EVERY poll once a debate has finished —
+  // we return here, leaving their DOM and the user's scroll position completely untouched. The
+  // header/toolbar bits above are cheap and don't scroll, so they refresh every tick regardless.
+  const sig = renderSig();
+  if (sig === _lastRenderSig) return;
+  _lastRenderSig = sig;
+
   const dt = document.getElementById("detail");
   // Preserve the transcript's scroll across the 1.2s poll rebuild. Three cases: a NEW agent
   // was selected -> start at the top; you were parked at the bottom -> keep following new
@@ -867,12 +891,13 @@ window.addEventListener("resize", () => {
   clearTimeout(_rz);
   _rz = setTimeout(() => {
     _lastDpr = window.devicePixelRatio || 1;
-    if (snap && showWL) render();
+    // geometry changed, not data — force past the change-guard so the SVG refits to the new width
+    if (snap && showWL){ _lastRenderSig = null; render(); }
   }, 120);
 });
 setInterval(() => {
   const d = window.devicePixelRatio || 1;
-  if (d !== _lastDpr){ _lastDpr = d; if (snap && showWL) render(); }
+  if (d !== _lastDpr){ _lastDpr = d; if (snap && showWL){ _lastRenderSig = null; render(); } }
 }, 600);
 
 async function poll(){
@@ -895,7 +920,7 @@ async function poll(){
 
 document.getElementById("sess").addEventListener("change", ev => {
   sessionId = ev.target.value;
-  sel = null; snap = null;      // different session => the old agent selection is meaningless
+  sel = null; snap = null; _lastRenderSig = null;   // different session => old selection/render are meaningless
   poll();
 });
 document.getElementById("wl-toggle").addEventListener("click", () => {
