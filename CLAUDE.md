@@ -251,7 +251,26 @@ words after the marker change.
 **Dealbreakers**
 - <name> → **resolved by** <how>  ·  **accepting because** <why>  ·  **refuted because** <evidence>
 - <one bullet per dealbreaker; if there were none, write a single line: "none raised">
+
+**Falsifier** — <the single most likely thing that, if it turned out true, would flip this verdict>
 ```
+
+**The Falsifier line** (added 2026-07-29) names, at decision time, the one fact whose truth reverses
+the ruling — turning a bare verdict into a *falsifiable* claim the reader/verifier can actually check.
+It is **mandatory on structural debates** (where a wrong call is expensive) and optional on light
+checks. Honest limits, stated out loud because this repo forbids costumes: it is an
+*honesty-practice* line, **not machine-enforced** — `verdict-lint` can check a falsifier's presence
+but not its quality, so a lint rule mandating it would drift to ceremony; and it's written after the
+debate, so it's an articulated weak-joint, not an independent prediction. You may also append a
+`"falsifier"` field to the journal entry (free — the journal appends any field).
+
+**What was deliberately NOT adopted (2026-07-29 structural debate, journaled):** a numeric/bucketed
+**confidence** score and a **calibration** loop. Self-reported confidence is weakly calibrated and
+rephrase-unstable; a "signal-derived" High/Med/Low isn't cleanly mechanical (Medium is undefinable
+from the existing fields); and the calibration loop mechanically *cannot close* — the journal is
+append-only with no `held` write path, and the only available outcome signal (`verifier: CONFORMS`)
+measures conformance-to-the-verdict, **not whether the verdict was right**. Don't re-propose these
+without first solving the `held`-outcome and correctness-signal problems.
 
 **Three dispositions, not two.** `refuted` exists because the Devil is sometimes simply *wrong*, and
 without a slot for that the ruling has to file a refutation as an "acceptance" — which reads as the
@@ -317,6 +336,8 @@ verdict that *picks* rather than merely proceeds.
 
 **Dealbreakers**
 - <name> → **resolved by** <how> · **accepting because** <why> · **refuted because** <evidence>   (none → "none raised")
+
+**Falsifier** — <the single most likely thing that, if true, would flip the choice to another option>
 
 **Runners-up** — <the best idea from a rejected option worth grafting onto the winner, if any>
 ```
