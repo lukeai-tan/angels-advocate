@@ -560,6 +560,12 @@ def main(argv=None):
     ap.add_argument("--arbiter-model",
                     help="the Arbiter's actual model, for --check-independence (default: infer "
                          "from an inherit-role agent, else $ANTHROPIC_MODEL)")
+    ap.add_argument("--gui", action="store_true",
+                    help="open a local browser view instead of the terminal UI (loopback-only "
+                         "http server; same data, shares debate_lib.snapshot)")
+    ap.add_argument("--port", type=int, default=None,
+                    help="port for --gui (default: a stable 8770 so the tab keeps working "
+                         "across restarts; 0 = ephemeral)")
     ap.add_argument("--project", help="project dir override (default: derived from cwd)")
     ap.add_argument("--subagents", help="point directly at a subagents/ dir (bypasses discovery)")
     ap.add_argument("--home", help="home dir override (testing)")
@@ -572,6 +578,17 @@ def main(argv=None):
 
     if args.check_independence:
         return run_check_independence(subagents_dir, label, args.arbiter_model)
+
+    if args.gui:
+        import debate_gui
+        # Hand the GUI the project dir so its session switcher has an allow-list to
+        # enumerate; --subagents bypasses discovery, so there's no project to offer then.
+        pdir = None if args.subagents else (args.project
+                                            or dl.project_dir(os.getcwd(), home=args.home))
+        return debate_gui.main(subagents_dir, label, args.arbiter_model,
+                               port=(debate_gui.DEFAULT_PORT if args.port is None
+                                     else args.port),
+                               project_dir=pdir)
 
     if args.once or not sys.stdout.isatty():
         return run_once(subagents_dir, label)

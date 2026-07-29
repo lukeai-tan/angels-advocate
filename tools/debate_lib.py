@@ -32,6 +32,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 
 # Role -> emoji for the roster/detail. red-teamer is intentionally omitted (renders as plain
 # text): its 🛡️ glyph carries a U+FE0F selector that misaligned the column on real terminals.
@@ -47,7 +48,10 @@ ROLE_EMOJI = {
     "historian": "📚",
     "scribe": "📝",
     "test-writer": "🧪",
-    "tldr": "✂️",
+    # tldr omitted deliberately: its ✂️ carries a U+FE0F variation selector that many
+    # terminals render as a narrow (width-1) text glyph while display_width() counts 2,
+    # shifting the ROLE column. Same failure — and same fix (render plain) — as red-teamer's
+    # 🛡️. Roles absent here render with no glyph.
 }
 
 # last-event-kind -> short activity label for an active agent (plain text, no emoji)
@@ -73,28 +77,35 @@ def activity_label(last_kind):
 # A tiny animated face per agent that emotes by state (thinking / running a tool /
 # writing / idle). Angel and devil get character-flavoured faces; every other role
 # shares a neutral set. EVERY frame is exactly 5 display columns — parens + a 3-char
-# middle — so the roster's FACE column never shifts (same width discipline that fixed
-# the emoji-alignment bugs; enforced by a test). Frames cycle only while active; idle
-# is a single static frame, so a quiet roster doesn't twitch.
+# middle — so the roster's FACE column never shifts. Frames cycle only while active;
+# idle is a single static frame, so a quiet roster doesn't twitch.
+#
+# GLYPHS MUST BE PURE ASCII (ord < 128). Earlier faces used prettier marks like `·`,
+# `ò`, `ō`, `˘` — but those are Unicode East-Asian *Ambiguous*-width: display_width()
+# counts them as 1 while many terminals (tmux/TERM=screen, CJK/ambiguous locales) draw
+# them as 2. The face then overflows its 5-col cell and gets clipped near the right
+# edge — a broken face that worsens as the pane narrows. display_width() can't catch
+# this (it shares the wrong width model), so the real guard is the ASCII-only assertion
+# in debate_lib_test.sh. Keep every glyph in 0x20–0x7E and no terminal can widen it.
 FACE_FPS = 2.0  # frame changes per second (matches the ~0.5s viewer poll)
 
 _FACES = {
     "angel": {                                       # soft, blissful
-        "thinking": ["(-‸-)", "(˘‸˘)", "(ˆ‸ˆ)"],
-        "tool":     ["(o‸o)", "(O‸O)"],
-        "writing":  ["(^‿^)", "(^o^)"],
-        "idle":     ["(-‿-)"],
+        "thinking": ["(-.-)", "(u.u)"],
+        "tool":     ["(o.o)", "(O.O)"],
+        "writing":  ["(^_^)", "(^o^)"],
+        "idle":     ["(^.^)"],
     },
     "devil": {                                       # sharp, scheming, smug
-        "thinking": ["(¬‸¬)", "(-‸-)", "(¬‸¬)"],
-        "tool":     ["(ò‸ó)", "(ō‸ō)"],
-        "writing":  ["(¬‿¬)", "(¬◡¬)"],
-        "idle":     ["(¬_¬)"],
+        "thinking": ["(>.>)", "(<.<)"],
+        "tool":     ["(>o<)", "(>O<)"],
+        "writing":  ["(-.~)", "(~.~)"],
+        "idle":     ["(~_~)"],
     },
     "_default": {                                    # neutral (verifier, researcher, …)
-        "thinking": ["(·.·)", "(-.-)"],
+        "thinking": ["(-.-)", "(o.o)"],
         "tool":     ["(o.o)", "(O.O)"],
-        "writing":  ["(^.^)", "(·.·)"],
+        "writing":  ["(^.^)", "(-.-)"],
         "idle":     ["(-_-)"],
     },
 }
@@ -172,6 +183,26 @@ def discover_session(pdir):
     return best
 
 
+def list_sessions(pdir):
+    """Every session under `pdir` that has a subagents/ dir, most recently active first.
+
+    Returns [{"id","subagents","recency","agents"}]. This is the ALLOW-LIST the browser
+    GUI's session switcher selects from: the server enumerates real directories itself and
+    the request may only pick one of these ids, so a session id arriving over HTTP is never
+    joined into a filesystem path. Keeps the 'request never builds a path' property intact
+    even though the client can now choose a session.
+    """
+    out = []
+    for sub in glob.glob(os.path.join(pdir, "*", "subagents")):
+        if not os.path.isdir(sub):
+            continue
+        sess = os.path.dirname(sub)
+        out.append({"id": os.path.basename(sess), "subagents": sub,
+                    "recency": _dir_recency(sub), "agents": len(agent_files(sub))})
+    out.sort(key=lambda s: s["recency"], reverse=True)
+    return out
+
+
 def agent_files(subagents_dir):
     """All agent transcript files under a subagents dir, including workflow-spawned
     ones nested under workflows/. Sorted, de-duplicated."""
@@ -208,6 +239,67 @@ def file_role(path):
 
 # --- parsing -----------------------------------------------------------------
 
+# --- secret redaction --------------------------------------------------------
+# Transcripts capture tool output VERBATIM, so a subagent that runs `env` — a routine move
+# when a debate needs to know which model it is running on — writes live credentials
+# straight into agent-*.jsonl. Both viewers render those events and the GUI serves them
+# over HTTP, so redact at the one chokepoint every event passes through
+# (events_from_obj/ev below): that covers the terminal viewer, the browser GUI and
+# snapshot() in a single place, rather than three front-ends each remembering to do it.
+#
+# DELIBERATELY CONSERVATIVE: match a known secret NAME or a known key PREFIX, never
+# "looks like a long random string". A 40-char hex blob is far more often a git SHA in a
+# diff than a credential, and redacting those would corrupt the very diffs the verifier
+# reads. Missing an exotic secret is recoverable; shredding every diff is not.
+# Header-carrying vars come FIRST and consume to end-of-line: their value is itself a
+# "Name: value" pair, so a token-only match would stop at the header NAME and leave the
+# credential after the space in the clear. That exact miss was caught in testing against
+# a real `env` dump — 'ANTHROPIC_CUSTOM_HEADERS=Ocp-Apim-Subscription-Key: <key>' had the
+# name redacted and the key still exposed.
+_SECRET_ASSIGN_EOL = re.compile(
+    r"(?i)\b(ANTHROPIC_CUSTOM_HEADERS|Ocp-Apim-Subscription-Key"
+    r"|Authorization|Proxy-Authorization|X-Api-Key)(\s*[=:]\s*)([^\r\n\"']+)")
+_SECRET_ASSIGN = re.compile(
+    r"(?i)\b(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN"
+    r"|OPENAI_API_KEY|GEMINI_API_KEY|GOOGLE_API_KEY|AWS_SECRET_ACCESS_KEY"
+    r"|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|NPM_TOKEN|SLACK_TOKEN)(\s*[=:]\s*)([^\s\"']+)")
+# The leading \b is load-bearing, not decoration: without it 'sk-' matches INSIDE ordinary
+# words — 'task-<id>', 'disk-<id>', 'risk-<id>' all end in 'sk' and would be silently
+# mangled, which is exactly the diff/ID corruption this matcher is supposed to avoid.
+_SECRET_TOKEN = re.compile(
+    r"\b(sk-ant-[A-Za-z0-9_-]{6,}|sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,}"
+    r"|AKIA[0-9A-Z]{12,}|xox[abprs]-[A-Za-z0-9-]{10,})")
+
+REDACTION = "«redacted"
+
+
+def redact_secrets(text):
+    """Replace credential VALUES in transcript text with a visible placeholder.
+
+    Keeps the variable name and the value's length so the text still reads sensibly
+    ('ANTHROPIC_API_KEY=«redacted:32c»') — a silent deletion would make a debate about
+    environment handling unreadable, and an invisible one would leave the operator
+    unaware the value was ever there."""
+    if not isinstance(text, str) or not text:
+        return text
+    sub = lambda m: m.group(1) + m.group(2) + REDACTION + ":%dc»" % len(m.group(3))
+    s = _SECRET_ASSIGN_EOL.sub(sub, text)     # header-style first (consumes to EOL)
+    s = _SECRET_ASSIGN.sub(sub, s)
+    return _SECRET_TOKEN.sub(
+        lambda m: REDACTION + ":%dc»" % len(m.group(1)), s)
+
+
+def _redact_deep(v):
+    """redact_secrets over a nested tool_use `input` (dict/list/str), leaving shape intact."""
+    if isinstance(v, str):
+        return redact_secrets(v)
+    if isinstance(v, dict):
+        return {k: _redact_deep(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_redact_deep(x) for x in v]
+    return v
+
+
 def _tool_result_text(content):
     """tool_result.content may be a string or a list of blocks; flatten to text."""
     if isinstance(content, str):
@@ -233,7 +325,12 @@ def events_from_obj(obj):
     out = []
 
     def ev(kind, **kw):
+        # Single redaction chokepoint: every event the viewers/GUI ever see is built here.
         e = {"role": role, "model": model, "ts": ts, "kind": kind}
+        if "text" in kw:
+            kw["text"] = redact_secrets(kw["text"])
+        if "input" in kw:
+            kw["input"] = _redact_deep(kw["input"])
         e.update(kw)
         return e
 
@@ -313,12 +410,29 @@ def short_tool_input(inp, limit=100):
 # a line into styled segments the curses UI paints with real attributes, and strip the
 # syntax for the plain --once dump. Kept here (not in the curses shell) so they're unit-tested.
 
+# East-Asian "Ambiguous"-width policy. Chars like em-dash (—), curly quotes (“ ”), the
+# ellipsis (…), Greek letters, and the middle dot (·) are Unicode East_Asian_Width = 'A':
+# they render 1 column on Western terminals but 2 on CJK/ambiguous-as-wide ones — and tmux
+# under TERM=screen is commonly in the wide camp. No stdlib call can query the terminal's
+# actual mode, so this is a knob, not a guess: default 1 (correct for the common case), opt
+# into 2 via ANGEL_ADVOC_AMBIGUOUS_WIDTH=2 on a terminal that draws ambiguous glyphs wide.
+# This closes the wrap/pad undercount class as far as a terminal app can — a GUI owns its
+# own layout engine and needs no such knob. Read once at import (viewer is launched fresh);
+# tests set dl.AMBIGUOUS_WIDTH directly to exercise both policies.
+AMBIGUOUS_WIDTH = 2 if os.environ.get("ANGEL_ADVOC_AMBIGUOUS_WIDTH", "").strip() == "2" else 1
+
+
 def char_width(cp):
     """Terminal display width of a code point: 0 for zero-width (variation selectors, ZWJ,
     combining marks), 2 for wide/emoji, else 1. Approximate but matches how common terminals
     render — enough to keep columns aligned. The key case: a variation selector (U+FE0F, as in
     the 🛡️ shield) is a real code point but paints 0 columns, so counting it with len() shoves
-    the rest of the row right."""
+    the rest of the row right.
+
+    The explicit ranges below run FIRST and are the source of truth for the glyphs the roster
+    actually uses (so their widths never regress). Anything they don't classify falls through
+    to the Unicode database, which catches wide/ambiguous chars the ranges miss — notably the
+    ambiguous-width prose (em-dash, curly quotes, …) that used to under-count in wrap_segments."""
     if cp == 0:
         return 0
     if (0x200B <= cp <= 0x200F or 0xFE00 <= cp <= 0xFE0F      # ZW spaces/joiners, var selectors
@@ -329,6 +443,11 @@ def char_width(cp):
             or 0xFFE0 <= cp <= 0xFFE6 or 0x2600 <= cp <= 0x27BF or 0x2B00 <= cp <= 0x2BFF
             or 0x1F000 <= cp <= 0x1FAFF):                      # CJK + symbols/dingbats + emoji
         return 2
+    eaw = unicodedata.east_asian_width(chr(cp))
+    if eaw in ("W", "F"):          # unambiguously wide / fullwidth the ranges above missed
+        return 2
+    if eaw == "A":                 # ambiguous — terminal-dependent; honor the policy knob
+        return AMBIGUOUS_WIDTH
     return 1
 
 
@@ -927,6 +1046,36 @@ IND_MARKS = {
 }
 
 
+def attractor_fields(models, arbiter_model=None):
+    """Group a debate's models into 'attractor fields' — one per model FAMILY — and measure
+    how much of the debate diverged from the Arbiter's own field.
+
+    This is the cross-model independence property viewed as a shape instead of a flag: agents
+    on the Arbiter's family sit in its home field, and every genuinely independent check
+    (devil/verifier/red-teamer/interpreter on another family) sits in a divergent one. The
+    browser GUI draws these as Steins;Gate-style world lines, but nothing here is decorative —
+    the fields are `model_family` groupings and the divergence is a real ratio.
+
+    Returns (fields, divergence):
+      fields     ordered list of families, the Arbiter's FIRST (so it is always the home
+                 field) and the rest in first-seen order; unknown models are skipped.
+      divergence fraction (0.0-1.0) of models NOT in the Arbiter's family. 0.0 when the
+                 Arbiter's model is undetermined — unknown never reads as divergent, the same
+                 fail-closed stance independence_state takes.
+    """
+    fams = [model_family(m) for m in models if m]
+    home = model_family(arbiter_model) if arbiter_model else None
+    ordered = []
+    if home:
+        ordered.append(home)
+    for f in fams:
+        if f and f not in ordered:
+            ordered.append(f)
+    if not home or not fams:
+        return ordered, 0.0
+    return ordered, sum(1 for f in fams if f != home) / len(fams)
+
+
 def independence_state(role, model, arbiter_model):
     """Where this agent sits against the cross-model independence rule:
       'ok'       cross-model role genuinely on a different family than the Arbiter
@@ -1110,3 +1259,65 @@ def load_agents_full(subagents_dir):
     # order by first activity (file name is stable; sort by mtime of first event/file)
     agents.sort(key=lambda a: a["path"])
     return agents
+
+
+def snapshot(subagents_dir, arbiter_model=None, now=None, repo_root=None):
+    """A JSON-serializable view of a debate for non-curses consumers (the browser GUI).
+
+    Reuses the SAME tested brain as the terminal viewer — load + status + duration + cost
+    + independence — so the two front-ends can never diverge in what they report. Pure
+    data: no curses, and no I/O beyond reading the transcripts load_agents_full already reads.
+
+    Returns {"agents": [...], "independence": {...}, "arbiter_model": <str|None>}. Each agent:
+    {id, role, model, status, start, end, duration_sec, usage, cost, last_kind, activity,
+    indep, family, heat, tok_share, events}, where `id` is the
+    agent's transcript filename — a STABLE, UNIQUE handle so a consumer can distinguish two
+    agents that share a role AND model (e.g. two angels in a fork, or two verifier passes on
+    the same model); keying on role+model alone would conflate them. `events` are the raw event
+    dicts (kind + text/name/input) for the front-end to render as it sees fit.
+    """
+    if now is None:
+        now = time.time()
+    agents_raw = load_agents_full(subagents_dir)
+    prices = load_prices(repo_root)
+    indep = check_independence(agents_raw, arbiter_model=arbiter_model)
+    arbiter = indep.get("arbiter_model")
+    # Token heat is a CROSS-agent derivation: it needs the debate's peak before any single
+    # row can be coloured. Compute it here (via the lib's own heat_bucket / usage_total) so the
+    # GUI colours rows straight from a `heat` field instead of re-deriving the bucket math —
+    # the same reason status/activity/indep are derived server-side. `heat` is the 0..N-1 bucket
+    # (N = HEAT_BUCKETS, matching the terminal); `tok_share` is the raw value/peak fraction the
+    # front-end needs only for a proportional bar width (a rendering concern, not a derivation).
+    peak = max((usage_total(a.get("usage")) for a in agents_raw), default=0)
+    # Attractor fields (model families) + the debate's divergence from the Arbiter's own
+    # field — another cross-agent derivation, so it belongs here rather than in the GUI.
+    fields, divergence = attractor_fields([a["model"] for a in agents_raw], arbiter)
+    out = []
+    for a in agents_raw:
+        events = a.get("events") or []
+        last_kind = events[-1]["kind"] if events else None
+        status = agent_status(a["mtime"], now=now)
+        total = usage_total(a.get("usage"))
+        out.append({
+            "id": os.path.basename(a["path"]),   # agent-<uuid>.jsonl — unique per agent
+            "role": a["role"],
+            "model": a["model"],
+            "status": status,
+            "start": agent_start(a),
+            "end": agent_end(a),
+            "duration_sec": agent_duration(a),
+            "usage": a.get("usage") or blank_usage(),
+            "cost": estimate_cost(a.get("usage"), a["model"], prices),
+            # Derived here (not client-side) so the GUI shares the terminal's exact brain:
+            "last_kind": last_kind,                    # raw last event kind
+            "activity": activity_label(last_kind) if status == "active" else "",
+            "indep": independence_state(a["role"], a["model"], arbiter),  # ok/collapse/inherit/…
+            "family": model_family(a["model"]),        # attractor field this world line sits in
+            "heat": heat_bucket(total, peak),          # 0..HEAT_BUCKETS-1, lib-owned bucket
+            "tok_share": (total / peak) if peak > 0 else 0.0,  # for a proportional bar width
+            "events": events,
+        })
+    return {"agents": out, "independence": indep, "arbiter_model": arbiter,
+            "heat_buckets": HEAT_BUCKETS,
+            "attractor_fields": fields,      # model families, the Arbiter's own first
+            "divergence": divergence}        # real ratio of agents outside the Arbiter's family

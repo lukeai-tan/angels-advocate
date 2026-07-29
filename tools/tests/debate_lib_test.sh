@@ -194,6 +194,269 @@ t_once_dump() {
 }
 
 # ---------------------------------------------------------------------------
+# (9b) snapshot(): the JSON brain shared by the browser GUI is serializable,
+#      reuses the same derivations as the terminal view, and stays independent-aware
+# ---------------------------------------------------------------------------
+t_snapshot() {
+	local sub="$WORKDIR/sess-snap/subagents"; mkdir -p "$sub"
+	make_transcript "$sub/agent-XYZ.jsonl"
+	pyt "snapshot(): json-serializable; reuses role/model/events/status/independence" "
+import json, debate_lib as dl
+snap = dl.snapshot('$sub', arbiter_model='claude-opus-4-8')
+s = json.dumps(snap)                                  # must be fully serializable
+snap2 = json.loads(s)
+assert set(snap2) >= {'agents','independence','arbiter_model'}, list(snap2)
+ag = snap2['agents']
+assert len(ag) == 1 and ag[0]['role'] == 'devil', ag
+a = ag[0]
+assert set(a) >= {'id','role','model','status','start','end','duration_sec','usage','cost',
+                  'last_kind','activity','indep','heat','tok_share','events'}, list(a)
+# heat is the lib-owned bucket (0..HEAT_BUCKETS-1), NOT re-derived in the GUI:
+assert snap2['heat_buckets'] == dl.HEAT_BUCKETS
+assert 0 <= a['heat'] < dl.HEAT_BUCKETS, a['heat']
+# this fixture carries no usage -> zero peak reads coldest (heat 0, empty share), never a crash
+assert a['heat'] == 0 and a['tok_share'] == 0.0, (a['heat'], a['tok_share'])
+# world-lines fields: the sonnet devil sits in a divergent attractor field vs an opus arbiter
+assert a['family'] == 'sonnet', a['family']
+assert snap2['attractor_fields'][0] == 'opus', snap2['attractor_fields']   # arbiter = home
+assert snap2['divergence'] == 1.0, snap2['divergence']
+assert a['id'] == 'agent-XYZ.jsonl', a['id']
+assert a['status'] in ('active','done'), a['status']
+kinds = [e['kind'] for e in a['events']]
+assert kinds == ['prompt','thinking','text','tool_use','tool_result','text'], kinds
+# parity fields the GUI roster renders (status/activity + independence mark):
+assert a['last_kind'] == 'text', a['last_kind']          # last event drives the activity label
+# activity is the human label ONLY while active; blank when done (mirrors the terminal)
+assert a['activity'] == (dl.activity_label('text') if a['status']=='active' else ''), a
+# a cross-model devil vs an opus arbiter is genuinely independent
+assert a['indep'] == 'ok', a['indep']
+# a cross-model devil vs an opus arbiter reads as independence held (not collapse)
+assert snap2['independence']['status'] == 'ok', snap2['independence']
+assert snap2['arbiter_model'] == 'claude-opus-4-8'
+"
+}
+
+# ---------------------------------------------------------------------------
+# (9b') snapshot(): two agents sharing BOTH role and model still get DISTINCT ids —
+#       the fix for the GUI bug where clicking one 'angel' selected both (they keyed on
+#       role+model, which is identical for e.g. two angels in a fork or two verifier passes)
+# ---------------------------------------------------------------------------
+t_snapshot_unique_ids() {
+	local sub="$WORKDIR/sess-dup/subagents"; mkdir -p "$sub"
+	# two angels, SAME role AND SAME model — the exact case that used to collide
+	printf '%s\n' '{"attributionAgent":"angel","timestamp":"2026-07-28T10:00:00Z","type":"assistant","message":{"model":"claude-opus-4-8","content":[{"type":"text","text":"first angel: case FOR option A"}]}}' > "$sub/agent-aaa.jsonl"
+	printf '%s\n' '{"attributionAgent":"angel","timestamp":"2026-07-28T10:00:05Z","type":"assistant","message":{"model":"claude-opus-4-8","content":[{"type":"text","text":"second angel: case FOR option B"}]}}' > "$sub/agent-bbb.jsonl"
+	pyt "snapshot(): same role+model -> distinct ids + distinct events (GUI tab-collision fix)" "
+import debate_lib as dl
+ag = dl.snapshot('$sub')['agents']
+assert len(ag) == 2, ag
+assert ag[0]['role'] == ag[1]['role'] == 'angel'
+assert ag[0]['model'] == ag[1]['model']              # same role AND model...
+assert ag[0]['id'] != ag[1]['id'], (ag[0]['id'], ag[1]['id'])   # ...but ids are unique
+assert {ag[0]['id'], ag[1]['id']} == {'agent-aaa.jsonl','agent-bbb.jsonl'}
+# and each id maps to its OWN transcript, not a shared one
+byid = {a['id']: a for a in ag}
+assert 'option A' in byid['agent-aaa.jsonl']['events'][0]['text']
+assert 'option B' in byid['agent-bbb.jsonl']['events'][0]['text']
+"
+}
+
+# ---------------------------------------------------------------------------
+# (9b'') snapshot(): the per-agent independence mark the GUI roster shows tracks
+#        independence_state — a same-model devil collapses, an angel inherits by design
+# ---------------------------------------------------------------------------
+t_snapshot_indep_field() {
+	local sub="$WORKDIR/sess-indep/subagents"; mkdir -p "$sub"
+	# devil on the SAME model as the arbiter -> collapse; angel inherits by design
+	printf '%s\n' '{"attributionAgent":"devil","timestamp":"2026-07-28T10:00:00Z","type":"assistant","message":{"model":"claude-opus-4-8","content":[{"type":"text","text":"attack"}]}}' > "$sub/agent-dev.jsonl"
+	printf '%s\n' '{"attributionAgent":"angel","timestamp":"2026-07-28T10:00:01Z","type":"assistant","message":{"model":"claude-opus-4-8","content":[{"type":"text","text":"steelman"}]}}' > "$sub/agent-ang.jsonl"
+	pyt "snapshot(): per-agent indep = collapse (same-model devil) / inherit (angel)" "
+import debate_lib as dl
+byid = {a['id']: a for a in dl.snapshot('$sub', arbiter_model='claude-opus-4-8')['agents']}
+assert byid['agent-dev.jsonl']['indep'] == 'collapse', byid['agent-dev.jsonl']['indep']
+assert byid['agent-ang.jsonl']['indep'] == 'inherit', byid['agent-ang.jsonl']['indep']
+"
+}
+
+# ---------------------------------------------------------------------------
+# (9b''') attractor_fields(): the GUI's world-lines view groups agents by model FAMILY and
+#         reports a real divergence ratio. Load-bearing: the Arbiter's family must always be
+#         the home field (index 0), and an undetermined Arbiter must never read as divergent.
+# ---------------------------------------------------------------------------
+t_attractor_fields() {
+	pyt "attractor_fields: arbiter's family is home; divergence is a real ratio; fails closed" "
+import debate_lib as dl
+A = dl.attractor_fields
+# 1 opus arbiter + 3 sonnets -> 3/4 diverged, home field first
+f, d = A(['claude-opus-4-8','claude-sonnet-5','claude-sonnet-5','claude-sonnet-5'], 'claude-opus-4-8')
+assert f[0] == 'opus' and set(f) == {'opus','sonnet'}, f
+assert abs(d - 0.75) < 1e-9, d
+# family-aware: a dated-suffix twin of the arbiter is NOT divergence
+f, d = A(['claude-sonnet-4-5-20250929'], 'claude-sonnet-4-5-20250930')
+assert f == ['sonnet'] and d == 0.0, (f, d)
+# the arbiter's family leads even when no agent ran on it
+f, d = A(['claude-sonnet-5'], 'claude-opus-5')
+assert f == ['opus','sonnet'] and d == 1.0, (f, d)
+# FAIL CLOSED: unknown arbiter never reports divergence (mirrors independence_state)
+f, d = A(['claude-sonnet-5','claude-opus-5'], None)
+assert d == 0.0, d
+assert A([], 'claude-opus-5') == (['opus'], 0.0)
+"
+}
+
+# ---------------------------------------------------------------------------
+# (9d) secret redaction: a subagent that runs `env` writes live credentials into its
+#      transcript, and BOTH viewers (plus the GUI's HTTP snapshot) render event text
+#      verbatim. Redaction happens at the events_from_obj chokepoint so all three are
+#      covered at once. Two load-bearing properties: real secrets die, and git SHAs live.
+# ---------------------------------------------------------------------------
+t_redact_secrets() {
+	pyt "redact_secrets: kills credential values (incl. header-with-space) but spares SHAs" "
+import debate_lib as dl
+R = dl.redact_secrets
+# --- must REDACT -----------------------------------------------------------
+assert 'deadbeefcafe0123456789abcdef0123' not in R('ANTHROPIC_API_KEY=deadbeefcafe0123456789abcdef0123')
+# THE REGRESSION THIS TEST EXISTS FOR: a header value is 'Name: value' — a token-only
+# match stops at the header NAME and leaves the credential after the space in the clear.
+h = 'ANTHROPIC_CUSTOM_HEADERS=Ocp-Apim-Subscription-Key: deadbeefcafe0123456789abcdef0123'
+assert 'deadbeefcafe' not in R(h), R(h)
+assert 'Ocp-Apim-Subscription-Key: sekrit99deadbeef' not in R('Ocp-Apim-Subscription-Key: sekrit99deadbeef')
+for s in ['export GITHUB_TOKEN=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345',
+          'sk-ant-api03-Zz9_abcdefghijklmnop',
+          'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIbKxDdENGbPxRfiCYEXAMPLEKEY',
+          'Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345']:
+    out = R(s)
+    assert '«redacted' in out, (s, out)
+# the placeholder keeps the length so the text still reads sensibly
+assert R('ANTHROPIC_API_KEY=0123456789abcdef') == 'ANTHROPIC_API_KEY=«redacted:16c»', R('ANTHROPIC_API_KEY=0123456789abcdef')
+# --- must NOT touch (false positives would corrupt the diffs the verifier reads) ------
+keep = ['commit 5872276abcdef0123456789abcdef0123456789 fix the thing',
+        'index a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0..0f1e2d3c 100644',
+        'ANTHROPIC_BASE_URL=https://llm-api.example.com/Anthropic',
+        'sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        'ANTHROPIC_MODEL=claude-opus-4-8',
+        # REGRESSION (caught by the verifier): 'sk-' with no left word boundary matched
+        # INSIDE ordinary words — task-/disk-/risk- all end in 'sk' — silently mangling
+        # exactly the kind of identifier that shows up in real infra debates.
+        'task-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8',
+        'see disk-9f86d081884c7d659a2feaa0c55ad015a3bf4f1 for details',
+        'risk-0123456789abcdef0123456789',
+        'kiosk-abcdefghijklmnopqrstuvwxyz01']
+for s in keep:
+    assert R(s) == s, ('should be untouched:', s, R(s))
+# ...while a REAL prefixed token at a word boundary still dies
+assert '«redacted' in R('key=sk-abcdefghijklmnopqrstuvwxyz01')
+assert R(None) is None and R('') == ''
+"
+}
+
+# ---------------------------------------------------------------------------
+# (9d') the chokepoint property: redaction must apply to EVERY event the viewers see —
+#       tool_result text AND tool_use input (a secret passed as a command argument) —
+#       because it is applied once in events_from_obj rather than per front-end.
+# ---------------------------------------------------------------------------
+t_redact_chokepoint() {
+	pyt "events_from_obj redacts tool_result text AND nested tool_use input" "
+import json, debate_lib as dl
+SEK = 'deadbeefcafe0123456789abcdef0123'
+obj = {'attributionAgent':'devil','timestamp':'2026-07-28T10:00:00Z',
+       'message':{'model':'claude-sonnet-5','content':[
+         {'type':'tool_result','content':'===env===\\nANTHROPIC_API_KEY=' + SEK},
+         {'type':'tool_use','name':'Bash','input':{'command':'curl -H \"X-Api-Key: ' + SEK + '\" x'}},
+         {'type':'text','text':'the key is ANTHROPIC_API_KEY=' + SEK},
+         {'type':'thinking','thinking':'ANTHROPIC_API_KEY=' + SEK}]}}
+evs = dl.events_from_obj(obj)
+assert len(evs) == 4, evs
+# ensure_ascii=False matters: json.dumps would escape the '«' placeholder to \\u00ab
+blob = json.dumps(evs, ensure_ascii=False)
+assert SEK not in blob, [e['kind'] for e in evs if SEK in json.dumps(e)]
+assert blob.count('«redacted') >= 4, blob.count('«redacted')
+# and the surrounding text survives — redaction must not eat the whole event
+assert 'env' in evs[0]['text'] and evs[1]['input']['command'].startswith('curl')
+"
+}
+
+# ---------------------------------------------------------------------------
+# (9c) the GUI http server: loopback bind, fixed routes only (no path traversal),
+#      snapshot JSON served, unknown paths 404 — smoke-tested over a real socket
+# ---------------------------------------------------------------------------
+t_gui_server() {
+	local sub="$WORKDIR/sess-gui/subagents"; mkdir -p "$sub"
+	make_transcript "$sub/agent-XYZ.jsonl"
+	pyt "debate_gui server: loopback, fixed routes, JSON snapshot, no path traversal" "
+import http.server, threading, urllib.request, json, debate_gui as g
+h = g.make_handler('$sub', 'sess-gui', 'claude-opus-4-8')
+srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), h)
+host, port = srv.server_address
+assert host == '127.0.0.1', host                      # loopback only, never 0.0.0.0
+t = threading.Thread(target=srv.serve_forever, daemon=True); t.start()
+try:
+    base = 'http://127.0.0.1:%d' % port
+    page = urllib.request.urlopen(base + '/').read().decode()
+    assert '<!doctype html>' in page.lower(), page[:80]
+    assert 'innerHTML' not in page, 'GUI must render agent text via textContent, not innerHTML'
+    snap = json.loads(urllib.request.urlopen(base + '/snapshot.json').read())
+    assert snap['label'] == 'sess-gui' and snap['agents'][0]['role'] == 'devil', snap
+    # a path that would traverse must NOT read a file — fixed-route dispatch returns 404
+    code = 0
+    try:
+        urllib.request.urlopen(base + '/../../../../etc/passwd')
+    except urllib.error.HTTPError as e:
+        code = e.code
+    assert code == 404, code
+finally:
+    srv.shutdown(); srv.server_close()
+"
+}
+
+# ---------------------------------------------------------------------------
+# (9e) the session switcher: the client may now CHOOSE a session, which is the one thing
+#      that could reintroduce path traversal. The server answers only from its OWN
+#      enumeration (list_sessions), so a crafted ?session= must 404 rather than escape.
+# ---------------------------------------------------------------------------
+t_gui_session_switch() {
+	local proj="$WORKDIR/proj-multi"
+	mkdir -p "$proj/sess-aaa/subagents" "$proj/sess-bbb/subagents"
+	make_transcript "$proj/sess-aaa/subagents/agent-AAA.jsonl"
+	make_transcript "$proj/sess-bbb/subagents/agent-BBB.jsonl"
+	# a decoy OUTSIDE the project dir that traversal would try to reach
+	mkdir -p "$WORKDIR/secret-sess/subagents"
+	make_transcript "$WORKDIR/secret-sess/subagents/agent-SECRET.jsonl"
+	pyt "GUI session switch: allow-list only — traversal/unknown ids 404, never escape" "
+import http.server, threading, urllib.request, urllib.error, urllib.parse, json, debate_gui as g, debate_lib as dl
+sessions = dl.list_sessions('$proj')
+assert {s['id'] for s in sessions} == {'sess-aaa','sess-bbb'}, sessions
+assert all(s['agents'] == 1 for s in sessions), sessions
+h = g.make_handler('$proj/sess-aaa/subagents', 'sess-aaa', 'claude-opus-4-8', '$proj')
+srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), h)
+t = threading.Thread(target=srv.serve_forever, daemon=True); t.start()
+def get(p):
+    return json.loads(urllib.request.urlopen('http://127.0.0.1:%d' % srv.server_address[1] + p).read())
+def code(p):
+    try:
+        urllib.request.urlopen('http://127.0.0.1:%d' % srv.server_address[1] + p); return 200
+    except urllib.error.HTTPError as e:
+        return e.code
+try:
+    listed = get('/sessions.json')
+    assert {s['id'] for s in listed['sessions']} == {'sess-aaa','sess-bbb'}, listed
+    assert listed['current'] == 'sess-aaa'
+    # switching to a legitimately enumerated session works and serves ITS agents
+    assert get('/snapshot.json?session=sess-bbb')['label'] == 'sess-bbb'
+    assert get('/snapshot.json')['label'] == 'sess-aaa'          # default = launch session
+    # ...and anything not in the enumeration is refused, however it is spelled
+    for evil in ['../secret-sess', '..%2Fsecret-sess', '/etc', 'secret-sess',
+                 '$WORKDIR/secret-sess', 'sess-aaa/../../secret-sess', '']:
+        c = code('/snapshot.json?session=' + urllib.parse.quote(evil, safe=''))
+        assert c in (200, 404), c
+        if evil:
+            assert c == 404, (evil, c)
+finally:
+    srv.shutdown(); srv.server_close()
+"
+}
+
+# ---------------------------------------------------------------------------
 # (10) markdown-lite rendering: inline parse, line classify, strip, wrap
 # ---------------------------------------------------------------------------
 t_markdown() {
@@ -216,11 +479,12 @@ assert dl.classify_line('> quoted')[:2] == ('quote','quoted')
 assert dl.classify_line('\`\`\`python')[0] == 'fence'
 assert dl.classify_line('plain text')[:2] == ('normal','plain text')
 "
-	pyt "roles carry emoji except red-teamer (plain), and pad_display keeps the column aligned" "
+	pyt "roles carry emoji except red-teamer/tldr (plain), and pad_display keeps the column aligned" "
 import debate_lib as dl
 assert dl.role_emoji('red-teamer') == ''            # omitted: its 🛡️ selector misaligned
+assert dl.role_emoji('tldr') == ''                  # omitted: its ✂️ selector misaligned (same class)
 for r in ('angel','devil','arbiter','verifier','researcher','interpreter',
-          'profiler','historian','scribe','test-writer','tldr'):
+          'profiler','historian','scribe','test-writer'):
     assert dl.role_emoji(r), r                       # everyone else keeps a glyph
 # the role column (name + optional emoji) pads to the SAME display width for every role,
 # so the table columns stay aligned whether or not the role has a glyph
@@ -251,6 +515,28 @@ assert dl.display_width('🛡️') == 2                       # shield + U+FE0F 
 assert dl.display_width('🛡️') == dl.display_width('✅')   # the two roster glyphs align
 assert dl.clip_to_width('🛡️xy', 2) == '🛡️'              # never splits a wide char; keeps selector
 "
+	pyt "char_width: unicodedata fallthrough — wide->2, ambiguous honors AMBIGUOUS_WIDTH policy" "
+import debate_lib as dl
+# Unambiguously wide chars the explicit ranges miss still measure 2 (via east_asian_width W/F).
+assert dl.char_width(ord('あ')) == 2                     # HIRAGANA A (W)
+assert dl.char_width(ord('Ａ')) == 2                     # FULLWIDTH LATIN A (F)
+# The roster glyph must NOT regress: scales U+2696 stays wide via the explicit range.
+assert dl.char_width(0x2696) == 2
+# Ambiguous-width prose (em-dash, curly quotes, ellipsis, middle dot) follows the policy knob.
+amb = [ord(c) for c in '—“”…·']                          # all East_Asian_Width == 'A'
+import unicodedata
+assert all(unicodedata.east_asian_width(chr(c)) == 'A' for c in amb), amb
+saved = dl.AMBIGUOUS_WIDTH
+try:
+    dl.AMBIGUOUS_WIDTH = 1
+    assert all(dl.char_width(c) == 1 for c in amb), ('policy=1', amb)
+    dl.AMBIGUOUS_WIDTH = 2
+    assert all(dl.char_width(c) == 2 for c in amb), ('policy=2', amb)
+finally:
+    dl.AMBIGUOUS_WIDTH = saved
+# Plain ASCII and Western-narrow still measure 1 regardless of policy.
+assert dl.char_width(ord('a')) == 1 and dl.char_width(ord('é')) == 1
+"
 	pyt "wrap_segments wraps to width, preserves style, applies indent" "
 import debate_lib as dl
 rows = dl.wrap_segments([('one two three four five', 'plain')], 12, indent=2)
@@ -276,6 +562,18 @@ assert not bad, bad
 for role in list(dl.ROLE_EMOJI) + ['angel','devil','verifier','unknown-role', None]:
     for st in ('thinking','tool','writing','idle'):
         assert dl.display_width(dl.face(role, st, 0)) == 5, (role, st)
+"
+	pyt "reactive faces: glyphs are pure ASCII (ambiguous-width chars break in tmux/CJK terminals)" "
+import debate_lib as dl
+# display_width() cannot catch this: it counts East-Asian Ambiguous chars (·, ò, ō, ˘, …)
+# as 1, but real terminals draw them as 2, overflowing the 5-col cell. ASCII (ord<128) is
+# guaranteed width-1 everywhere, so this — not the display_width check above — is the guard.
+bad = [(role, state, fr, c, hex(ord(c)))
+       for role, states in dl._FACES.items()
+       for state, frames in states.items()
+       for fr in frames
+       for c in fr if ord(c) > 127]
+assert not bad, bad
 "
 	pyt "reactive faces: state mapping + animation cycles only while active" "
 import debate_lib as dl
@@ -868,6 +1166,14 @@ t_discover_and_agentfiles
 t_slug
 t_status
 t_once_dump
+t_snapshot
+t_snapshot_unique_ids
+t_snapshot_indep_field
+t_attractor_fields
+t_redact_secrets
+t_redact_chokepoint
+t_gui_server
+t_gui_session_switch
 t_markdown
 t_tokens
 mkdir -p "$WORKDIR/prices-root/.angel-advoc"   # fixture root for the price-override tests

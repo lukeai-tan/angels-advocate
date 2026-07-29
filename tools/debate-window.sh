@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # debate-window.sh — auto-open the Angel's Advocate debate viewer in a separate
-# Windows Terminal window when a subagent spawns.
+# terminal (a tmux split pane, or a Windows Terminal window) when a subagent spawns.
 #
 # Wired via a PreToolUse hook on the subagent-spawning tool (see .claude/settings.json).
 # The hook fires once per spawn (angel/devil/verifier/…); the guard below ensures only
-# ONE window opens per debate. Safe to run manually too — running it with no args opens
-# the window immediately (subject to the guard).
+# ONE viewer opens per debate. Safe to run manually too — running it with no args opens
+# the viewer immediately (subject to the guard).
 #
-# WSL-only: it shells out to wt.exe (Windows Terminal). On non-WSL / no-wt hosts it is a
-# no-op, so it is harmless to leave wired everywhere. Deliberately NOT installed by
-# install.sh (environment-specific); it lives project-scoped in this repo.
+# Backend, chosen at launch:
+#   - inside a tmux session ($TMUX set) → open the viewer in a split pane beside Claude.
+#   - else on WSL with Windows Terminal → open a new wt.exe window.
+#   - neither available → no-op, so it is harmless to leave wired everywhere.
+# Deliberately NOT installed by install.sh (environment-specific); it lives
+# project-scoped in this repo.
 #
 # Modes:
-#   debate-window.sh          guard, then launch a new wt.exe window (what the hook calls)
+#   debate-window.sh          guard, then launch the viewer (what the hook calls)
 #   debate-window.sh --force  skip the debounce lock; open on demand (what /debate-window calls)
-#   debate-window.sh --run    run the viewer + pause-on-error (invoked INSIDE the window)
+#   debate-window.sh --run    run the viewer + pause-on-error (invoked INSIDE the viewer)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,9 +40,16 @@ fi
 FORCE=0
 [ "${1:-}" = "--force" ] && FORCE=1
 
-# Only meaningful under WSL with Windows Terminal. Elsewhere, quietly do nothing.
-if ! command -v wt.exe >/dev/null 2>&1; then
-  [ "$FORCE" -eq 1 ] && echo "debate-window: wt.exe not found — this feature needs WSL + Windows Terminal."
+# Pick a backend: a tmux split pane when we're inside a session, else a Windows Terminal
+# window on WSL. Neither present → quietly do nothing.
+BACKEND=""
+if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then
+  BACKEND="tmux"
+elif command -v wt.exe >/dev/null 2>&1; then
+  BACKEND="wt"
+fi
+if [ -z "$BACKEND" ]; then
+  [ "$FORCE" -eq 1 ] && echo "debate-window: no supported terminal — need a tmux session or WSL + Windows Terminal."
   exit 0
 fi
 
@@ -72,6 +82,19 @@ if pgrep -f 'debate_view\.py' >/dev/null 2>&1; then
 fi
 
 touch "$LOCK" 2>/dev/null || true
+
+if [ "$BACKEND" = "tmux" ]; then
+  # Split the current window so the live viewer sits beside Claude Code. -d keeps focus on
+  # the Claude pane so the subagent spawn is never interrupted; -p 50 gives the viewer an
+  # even half. Invoking our own --run mode keeps the viewer + pause-on-error behavior
+  # identical across backends.
+  if tmux split-window -h -d -p 50 -c "$REPO" "'$SCRIPT_DIR/debate-window.sh' --run" >/dev/null 2>&1; then
+    [ "$FORCE" -eq 1 ] && echo "debate-window: opened the debate viewer in a tmux split pane (focus stays on this pane)."
+  else
+    [ "$FORCE" -eq 1 ] && echo "debate-window: tmux split-window failed — no viewer opened."
+  fi
+  exit 0
+fi
 
 # Open a NEW Windows Terminal window, cd'd into the repo inside WSL, running the viewer.
 # Invoking our own --run mode keeps the wt command line free of ';' — which wt.exe would

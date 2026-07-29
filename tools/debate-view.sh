@@ -10,6 +10,7 @@
 #   tools/debate-view.sh                 # live view of the most-recently-active session
 #   tools/debate-view.sh <session-id>    # a specific session under this project
 #   tools/debate-view.sh --once          # one-shot dump (replay / pipe to less)
+#   tools/debate-view.sh --gui           # open a local browser view (loopback-only http server)
 #   tools/debate-view.sh --check-independence   # verify cross-model roles ran on a model !=
 #                                        # the Arbiter's, from actual runtime models (exit 1 collapse)
 #
