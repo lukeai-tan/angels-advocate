@@ -68,17 +68,29 @@ if (units.length === 0) {
 }
 
 // Enforce the disjoint invariant: merge any units that share a file into one serial unit, so no
-// two PARALLEL builders can ever race on the same file. (Incremental grouping — a unit merges into
-// the first existing group it shares a file with; the group accumulates files, so a chain
-// A~B~C collapses correctly as long as the shared files transit.)
+// two PARALLEL builders can ever race on the same file.
+//
+// A unit must fuse EVERY group it overlaps, not just the first. The earlier single-pass first-fit
+// was order-dependent and broke the invariant outright: for A[x], C[y], B[x,y] the bridging unit B
+// merged into A's group and left C's group still owning `y`, so `y` was handed to two concurrent
+// builders — the exact race this function exists to prevent. (A[x], B[x,y], C[y] happened to work,
+// which is why the bug hid behind a hedge in this comment.) Fusing all hits keeps the invariant
+// inductively: a group left unmerged shares no file with `u` and, by the invariant, shared none
+// with the groups `u` absorbed. Pinned order-independently by tools/tests/workflow_test.sh (3e).
 function disjointGroups(us) {
   const groups = []
   for (const u of us) {
     const files = (u.files || []).map(String)
-    const hit = groups.find(g => files.some(f => g.files.includes(f)))
-    if (hit) {
-      hit.tasks.push(u.task)
-      for (const f of files) if (!hit.files.includes(f)) hit.files.push(f)
+    const hits = groups.filter(g => files.some(f => g.files.includes(f)))
+    if (hits.length) {
+      const head = hits[0]
+      for (const other of hits.slice(1)) {       // fuse the groups this unit bridges
+        head.tasks.push(...other.tasks)
+        for (const f of other.files) if (!head.files.includes(f)) head.files.push(f)
+        groups.splice(groups.indexOf(other), 1)
+      }
+      head.tasks.push(u.task)
+      for (const f of files) if (!head.files.includes(f)) head.files.push(f)
     } else {
       groups.push({ tasks: [u.task], files: [...files] })
     }

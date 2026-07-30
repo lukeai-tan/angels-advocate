@@ -198,6 +198,20 @@ PAGE = r"""<!doctype html>
   .tbtn:hover { color:#d7dae0; border-color:#3d4757; }
   .tbtn.on { color:#e7eaf0; border-color:#48d18c; background:#12251b; }
   .tb-count { color:#6f7787; font-size:12px; }
+  /* running cost readout — amber (the nixie family, dimmed so it doesn't shout) and
+     tabular-nums so the digits don't jitter as the totals tick up on every poll */
+  .tb-spend { color:#c99a52; font-size:12px; font-variant-numeric:tabular-nums; }
+  /* keyboard help overlay ('?' toggles) — a small card over the whole page; the backdrop
+     is clickable so it is never a trap for someone who opened it by accident */
+  #help { position:fixed; inset:0; z-index:10; display:flex; align-items:center;
+          justify-content:center; background:rgba(7,9,14,.7); cursor:pointer; }
+  #help .card { background:#12151b; border:1px solid #2c3340; border-radius:8px;
+                padding:14px 18px; font-size:12px; }
+  #help h2 { margin:0 0 9px; font-size:9px; font-weight:600; color:#5c6675;
+             letter-spacing:.28em; text-transform:uppercase; }
+  #help dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:5px 18px; }
+  #help dt { color:#ffb545; white-space:nowrap; }
+  #help dd { margin:0; color:#8b93a1; }
   /* the world-lines panel: full width, collapsible, capped so it never eats the split */
   .wlpanel { max-height:48vh; overflow:auto; border-bottom:1px solid #262a33; flex:none; }
   /* the master–detail split: a compact agent RAIL on the left, the transcript on the right
@@ -369,6 +383,7 @@ PAGE = r"""<!doctype html>
   <div class="toolbar">
     <button id="wl-toggle" class="tbtn">▸ World Lines</button>
     <span id="tcount" class="tb-count"></span>
+    <span id="tspend" class="tb-spend"></span>
   </div>
   <div id="worldlines" class="wlpanel hidden"><div class="empty">Waiting for world lines…</div></div>
   <div class="split">
@@ -379,10 +394,23 @@ PAGE = r"""<!doctype html>
     </section>
   </div>
 </main>
+<!-- keyboard help; static markup (no agent-authored text ever reaches it) -->
+<div id="help" class="hidden">
+  <div class="card">
+    <h2>keys</h2>
+    <dl>
+      <dt>j / k&nbsp;&nbsp;·&nbsp;&nbsp;↓ / ↑</dt><dd>next / previous agent</dd>
+      <dt>] / [</dt><dd>next / previous session</dd>
+      <dt>w</dt><dd>toggle the World Lines panel</dd>
+      <dt>?</dt><dd>show / hide this help</dd>
+    </dl>
+  </div>
+</div>
 <script>
 let snap = null;
 let sel = null;   // selected agent id (a.id = agent-<uuid>.jsonl, unique per agent)
 let showWL = false;   // whether the full-width World Lines panel is open above the split
+let showHelp = false; // whether the keyboard-help overlay is up ('?')
 let sessionId = null; // selected session; null = whatever the server was launched with
 let sessions = [];
 let _lastDetailSel = null;   // which agent the transcript last showed (to preserve scroll)
@@ -418,6 +446,21 @@ function usageTotal(u){
   return (u.input||0) + (u.output||0) + (u.cache_read||0) + (u.cache_create||0);
 }
 function fmtCost(c){ return c == null ? "—" : "$" + c.toFixed(c < 1 ? 4 : 2); }
+
+// Debate-wide running totals for the toolbar readout: tokens and indicative USD across every
+// agent in the snapshot. It sums the SAME per-agent numbers renderStat() shows (a.usage and
+// a.cost, priced server-side by debate_lib.estimate_cost) rather than re-deriving them, so the
+// toolkit keeps exactly one pricing table. Agents whose model family has no price entry come
+// back with cost == null; they are counted separately so the readout can say the total is a
+// floor instead of quietly under-reporting.
+function debateTotals(agents){
+  let tok = 0, cost = 0, priced = 0, unpriced = 0;
+  for (const a of agents){
+    tok += usageTotal(a.usage);
+    if (a.cost == null) unpriced++; else { cost += a.cost; priced++; }
+  }
+  return { tok, cost: priced ? cost : null, unpriced };
+}
 function fmtDur(s){
   if (s == null) return "—";
   s = Math.floor(s);
@@ -817,7 +860,8 @@ function renderSig(){
     x.id + ":" + x.status + ":" + (x.activity || "") + ":" + usageTotal(x.usage) +
     ":" + (x.duration_sec || 0) + ":" + (x.heat || 0) + ":" + (x.tok_share || 0)).join("|");
   return rows + "##sel=" + sel + "##ev=" + (a ? a.events.length : -1) +
-         "##wl=" + showWL + "##ind=" + (snap.independence ? snap.independence.status : "") +
+         "##wl=" + showWL + "##help=" + showHelp +
+         "##ind=" + (snap.independence ? snap.independence.status : "") +
          "##lbl=" + (snap.label || "");
 }
 
@@ -854,6 +898,22 @@ function render(){
   wlBtn.textContent = (showWL ? "▾ " : "▸ ") + "World Lines";
   document.getElementById("tcount").textContent =
     n ? n + " agent" + (n === 1 ? "" : "s") : "";
+
+  // live cost readout: the debate's running spend, refreshed on every poll like the count
+  const tot = debateTotals(snap ? snap.agents : []);
+  const spend = document.getElementById("tspend");
+  spend.textContent = n
+    ? fmtTok(tot.tok) + " tok  ·  " + fmtCost(tot.cost) +
+      (tot.cost != null && tot.unpriced ? "+" : "")
+    : "";
+  spend.title = n
+    ? "running totals across all " + n + " agent" + (n === 1 ? "" : "s") +
+      " in this snapshot; the cost is indicative, from debate_lib's price table" +
+      (tot.unpriced ? " — " + tot.unpriced + " agent" + (tot.unpriced === 1 ? " has" : "s have")
+                      + " no price entry for their model family, so the total is a floor" : "")
+    : "";
+
+  document.getElementById("help").classList.toggle("hidden", !showHelp);
 
   // Change-guard: only rebuild the scrollable panes (rail + transcript) when their data actually
   // changed. On an unchanged poll — the common case, and EVERY poll once a debate has finished —
@@ -918,13 +978,66 @@ async function poll(){
   }
 }
 
-document.getElementById("sess").addEventListener("change", ev => {
-  sessionId = ev.target.value;
+// Switching sessions — shared by the dropdown and the [ / ] keys so both reset the same state.
+function selectSession(id){
+  if (!id) return;
+  sessionId = id;
   sel = null; snap = null; _lastRenderSig = null;   // different session => old selection/render are meaningless
   poll();
+}
+
+document.getElementById("sess").addEventListener("change", ev => {
+  selectSession(ev.target.value);
 });
 document.getElementById("wl-toggle").addEventListener("click", () => {
   showWL = !showWL; render();
+});
+document.getElementById("help").addEventListener("click", () => {
+  showHelp = false; render();
+});
+
+// --- keyboard navigation ------------------------------------------------------
+// Move the rail selection (j/k, arrows), step sessions ([ / ]), toggle the panels (w, ?).
+// Every key is ignored while a form control has focus, so the session <select> keeps its own
+// arrow/type-ahead behaviour — otherwise 'w' inside the dropdown would toggle World Lines.
+function typing(el){
+  return !!el && (/^(input|select|textarea)$/i.test(el.tagName) || el.isContentEditable);
+}
+
+// Step along the rail in its rendered order (snap.agents), clamped at both ends — no wrap,
+// so holding a key parks you at the first/last agent instead of cycling.
+function moveSel(step){
+  if (!snap || !snap.agents.length) return;
+  const i = snap.agents.findIndex(a => key(a) === sel);
+  const next = Math.min(snap.agents.length - 1, Math.max(0, i < 0 ? 0 : i + step));
+  sel = key(snap.agents[next]);
+  render();   // sel is part of renderSig(), so this rebuilds and the .sel row exists below
+  const row = document.querySelector("#rail .ra.sel");
+  // block:"nearest" scrolls the rail only when the row is actually off-screen, so it leaves
+  // the reader's position alone in the common case (same spirit as the scroll save/restore).
+  if (row) row.scrollIntoView({ block: "nearest" });
+}
+
+function stepSession(step){
+  if (!sessions.length) return;
+  const cur = (snap && snap.label) || sessionId;
+  const i = sessions.findIndex(s => s.id === cur);
+  const next = Math.min(sessions.length - 1, Math.max(0, i < 0 ? 0 : i + step));
+  if (sessions[next].id !== cur) selectSession(sessions[next].id);
+}
+
+document.addEventListener("keydown", ev => {
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;   // leave browser shortcuts alone
+  if (typing(ev.target)) return;
+  const k = ev.key;
+  if (k === "j" || k === "ArrowDown") moveSel(1);
+  else if (k === "k" || k === "ArrowUp") moveSel(-1);
+  else if (k === "]") stepSession(1);
+  else if (k === "[") stepSession(-1);
+  else if (k === "w") { showWL = !showWL; render(); }
+  else if (k === "?") { showHelp = !showHelp; render(); }
+  else return;
+  ev.preventDefault();   // only for keys we actually handled (arrows would scroll the page)
 });
 poll();
 setInterval(poll, 1200);
