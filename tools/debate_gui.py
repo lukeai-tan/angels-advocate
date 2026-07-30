@@ -201,6 +201,14 @@ PAGE = r"""<!doctype html>
   /* running cost readout — amber (the nixie family, dimmed so it doesn't shout) and
      tabular-nums so the digits don't jitter as the totals tick up on every poll */
   .tb-spend { color:#c99a52; font-size:12px; font-variant-numeric:tabular-nums; }
+  /* time-range filter. Same chrome as the session switcher (#sess) but it lives in the
+     toolbar, not the header, because it narrows BOTH panes — rail and world lines — rather
+     than changing which session you're looking at. Goes green when a filter is active, so a
+     narrowed view never looks like the whole session. */
+  #range { font:inherit; font-size:12px; background:#161a21; color:#d7dae0;
+           border:1px solid #2c3340; border-radius:4px; padding:3px 6px; max-width:38ch; }
+  #range:hover { border-color:#3d4757; }
+  #range.on { border-color:#48d18c; color:#e7eaf0; background:#12251b; }
   /* keyboard help overlay ('?' toggles) — a small card over the whole page; the backdrop
      is clickable so it is never a trap for someone who opened it by accident */
   #help { position:fixed; inset:0; z-index:10; display:flex; align-items:center;
@@ -382,6 +390,7 @@ PAGE = r"""<!doctype html>
 <main>
   <div class="toolbar">
     <button id="wl-toggle" class="tbtn">▸ World Lines</button>
+    <select id="range"></select>
     <span id="tcount" class="tb-count"></span>
     <span id="tspend" class="tb-spend"></span>
   </div>
@@ -401,6 +410,7 @@ PAGE = r"""<!doctype html>
     <dl>
       <dt>j / k&nbsp;&nbsp;·&nbsp;&nbsp;↓ / ↑</dt><dd>next / previous agent</dd>
       <dt>] / [</dt><dd>next / previous session</dd>
+      <dt>f / F</dt><dd>next / previous time range (debate burst or window)</dd>
       <dt>w</dt><dd>toggle the World Lines panel</dd>
       <dt>?</dt><dd>show / hide this help</dd>
     </dl>
@@ -411,6 +421,7 @@ let snap = null;
 let sel = null;   // selected agent id (a.id = agent-<uuid>.jsonl, unique per agent)
 let showWL = false;   // whether the full-width World Lines panel is open above the split
 let showHelp = false; // whether the keyboard-help overlay is up ('?')
+let range = "all";    // time-range filter id: "all" | "1h"|"6h"|"24h" | "burst:<n>"
 let sessionId = null; // selected session; null = whatever the server was launched with
 let sessions = [];
 let _lastDetailSel = null;   // which agent the transcript last showed (to preserve scroll)
@@ -471,6 +482,107 @@ function fmtDur(s){
 function fmtTok(t){ return t >= 1000 ? (t/1000).toFixed(1) + "k" : "" + t; }
 function stripModel(m){ return m ? m.replace(/^claude-/, "") : "(unknown)"; }
 
+// --- time-range filter --------------------------------------------------------
+// A long-lived session accumulates many debates hours or days apart, and the world-line plot
+// maps the whole span onto one axis — so a 4-minute debate inside a 46-hour session is a
+// hairline against two days of idle gap. This narrows BOTH panes (rail + world lines) to a
+// slice of time. Two kinds of slice:
+//   * BURSTS — clusters of activity separated by a long idle gap. This is the one that
+//     actually fixes the width problem, because it removes the gaps rather than scaling them.
+//   * WINDOWS — plain "last 1h / 6h / 24h", as a coarse fallback across several bursts.
+//
+// Windows are anchored to the session's LATEST ACTIVITY, not to wall-clock now. Anchoring to
+// now would show an empty view for any session you are browsing after the fact — which is most
+// of them. The <option> text says "of activity" so the anchor isn't a surprise.
+const BURST_GAP = 20 * 60;   // idle seconds that separate one debate from the next
+
+function aStart(a){ return a.start != null ? a.start : (a.end != null ? a.end : 0); }
+function aEnd(a){ return a.end != null ? a.end : (a.start != null ? a.start : 0); }
+
+// Cluster agents into debates by idle gap. Returns oldest-first; each burst carries its own
+// [t0,t1] and members. Overlapping/nested agents extend the running end, so a long-running
+// parent never splits away from the children it spawned.
+function bursts(agents){
+  const sorted = agents.slice().sort((a, b) => aStart(a) - aStart(b));
+  const out = [];
+  for (const a of sorted){
+    const last = out[out.length - 1];
+    if (last && aStart(a) - last.t1 <= BURST_GAP){
+      last.items.push(a);
+      last.t1 = Math.max(last.t1, aEnd(a));
+    } else {
+      out.push({ items: [a], t0: aStart(a), t1: aEnd(a) });
+    }
+  }
+  return out;
+}
+
+function fmtAgo(sec){
+  if (sec < 90) return "just now";
+  if (sec < 3600) return Math.round(sec / 60) + "m ago";
+  if (sec < 86400) return Math.round(sec / 3600) + "h ago";
+  return Math.round(sec / 86400) + "d ago";
+}
+
+// The dropdown's contents, newest-first: every detected burst, then the fixed windows, then
+// "All time". Each entry knows how to test an agent, so viewAgents() stays a one-liner.
+// Memoized on the agent set's shape because viewAgents() (and therefore this) is called
+// several times per render, and the burst walk sorts.
+let _roCache = null, _roKey = "";
+function rangeOptions(agents){
+  // the minute bucket is in the key so the "…m ago" labels don't freeze at page-load time on a
+  // finished session; it costs one recompute a minute, and renderRanges() won't rebuild the
+  // <select> unless the resulting text actually changed
+  const key = agents.length + "@" + Math.floor(Date.now() / 60000) + ":" +
+              agents.map(a => aStart(a) + "/" + aEnd(a)).join(",");
+  if (_roKey === key && _roCache) return _roCache;
+  const opts = [];
+  if (!agents.length){
+    _roKey = key;
+    return (_roCache = [{ id: "all", label: "All time", group: "", test: () => true, n: 0 }]);
+  }
+  const bs = bursts(agents);
+  const now = Date.now() / 1000;
+  bs.slice().reverse().forEach((b, i) => {
+    const idx = bs.length - i;   // chronological number: #1 is the oldest
+    opts.push({
+      id: "burst:" + idx,
+      label: (i === 0 ? "Latest debate" : "Debate #" + idx) +
+             "  ·  " + b.items.length + " agent" + (b.items.length === 1 ? "" : "s") +
+             "  ·  " + fmtAgo(Math.max(0, now - b.t1)),
+      group: "debates",
+      n: b.items.length,
+      // inclusive on both ends: a burst's own boundary agents must fall inside it
+      test: a => aEnd(a) >= b.t0 && aStart(a) <= b.t1,
+    });
+  });
+  const anchor = agents.reduce((m, a) => Math.max(m, aEnd(a)), -Infinity);
+  for (const [h, lab] of [[1, "Last 1 hour"], [6, "Last 6 hours"], [24, "Last 24 hours"]]){
+    const cut = anchor - h * 3600;
+    const n = agents.filter(a => aEnd(a) >= cut).length;
+    if (n === agents.length) continue;   // identical to "All time" — don't offer the same view twice
+    opts.push({ id: h + "h", label: lab + " of activity", group: "windows", n,
+                test: a => aEnd(a) >= cut });
+  }
+  opts.push({ id: "all", label: "All time", group: "windows", n: agents.length, test: () => true });
+  _roKey = key;
+  return (_roCache = opts);
+}
+
+function curRange(){
+  const opts = rangeOptions((snap && snap.agents) || []);
+  return opts.find(o => o.id === range) || opts[opts.length - 1];   // fall back to All time
+}
+
+// THE filter. Every consumer — rail, stat, world lines, cost readout, keyboard nav, renderSig —
+// reads agents through this, so the panes can never disagree about what is in view.
+function viewAgents(){
+  const all = (snap && snap.agents) || [];
+  if (range === "all") return all;
+  const o = curRange();
+  return all.filter(o.test);
+}
+
 // Global timeline window across all agents; running bars extend to the latest activity.
 function tlWindow(agents){
   let t0 = Infinity, t1 = -Infinity;
@@ -503,8 +615,15 @@ function renderRail(){
     host.appendChild(cell("div", "empty", "No agents yet."));
     return;
   }
+  // labels come from the FULL agent set so "devil #2" keeps its number when a filter is on —
+  // renumbering rows as you narrow the range would make the same agent look like a different one
   const labels = roleLabels(snap.agents);
-  for (const a of snap.agents){
+  const view = viewAgents();
+  if (!view.length){
+    host.appendChild(cell("div", "empty", "No agents in this time range."));
+    return;
+  }
+  for (const a of view){
     const row = cell("div", "ra" + (key(a) === sel ? " sel" : ""));
 
     const dot = cell("span", "dot" + (a.status === "active" ? " active" : ""));
@@ -543,7 +662,7 @@ function renderStat(){
   const el = document.getElementById("stat");
   const prevLeft = el.scrollLeft;   // preserve horizontal scroll across the poll rebuild
   el.textContent = "";
-  const a = snap && snap.agents.find(x => key(x) === sel);
+  const a = viewAgents().find(x => key(x) === sel);   // out-of-range selection shows nothing
   if (!a) return;
   const labels = roleLabels(snap.agents);
   const emoji = ROLE_EMOJI[a.role] ? ROLE_EMOJI[a.role] + " " : "";
@@ -668,7 +787,15 @@ function renderWorldLines(){
     return;
   }
   const W = Math.max(host.clientWidth || 900, 520);
-  const agents = snap.agents, labels = roleLabels(agents), win = tlWindow(agents);
+  // plot only the agents in the current time range — that is the whole point of the filter:
+  // dropping the idle gaps between debates so the surviving lines get the full axis width
+  const agents = viewAgents(), labels = roleLabels(snap.agents), win = tlWindow(agents);
+  if (!agents.length){
+    host.appendChild(cell("div", "empty", "No world lines in this time range."));
+    return;
+  }
+  // colours/field indices stay keyed to the FULL field list so a role keeps its colour as you
+  // filter; only the legend below is narrowed to the fields actually present in view
   const fields = snap.attractor_fields || [];
   const fidx = f => { const i = fields.indexOf(f); return i < 0 ? 98 : i; };
   const colorOf = a => FIELD_COLORS[fidx(a.family) % FIELD_COLORS.length];
@@ -688,8 +815,16 @@ function renderWorldLines(){
     return g;
   };
   const nActive = agents.filter(a => a.status === "active").length;
-  meter.appendChild(grp("divergence", nixie((snap.divergence || 0).toFixed(6)),
-    "REAL measurement, not a prop: the fraction of this debate's agents running on a model "
+  // Divergence is recomputed over the agents IN VIEW, not taken from snap.divergence: quoting the
+  // session-wide figure beside a narrowed plot would be a plain lie about what you're looking at.
+  // The formula is the server's own (fraction whose model family differs from the Arbiter's field,
+  // attractor_fields[0]) and reproduces snap.divergence exactly when the range is "All time".
+  const arbField = fields.length ? fields[0] : null;
+  const divergence = (arbField == null)
+    ? (snap.divergence || 0)
+    : agents.filter(a => a.family !== arbField).length / agents.length;
+  meter.appendChild(grp("divergence", nixie(divergence.toFixed(6)),
+    "REAL measurement, not a prop: the fraction of the agents IN VIEW running on a model "
     + "family other than the Arbiter's (" + (snap.arbiter_model || "unknown") + "). "
     + "1.000000 would mean every agent diverged; 0.000000 means none did."));
   meter.appendChild(grp("world lines",
@@ -697,12 +832,14 @@ function renderWorldLines(){
   meter.appendChild(grp("live", nixie(String(nActive).padStart(2, "0"), "teal small")));
   if (win) meter.appendChild(grp("observed span", nixie(fmtDur(win.span), "teal small")));
   const fk = cell("div", "fieldkeys");
+  const inView = new Set(agents.map(a => a.family));
   fields.forEach((f, i) => {
+    if (!inView.has(f)) return;   // a field with nobody in view is a dead legend entry
     const s = cell("span", "fk", FIELD_GREEK[i % FIELD_GREEK.length] + " " + f);
     s.style.color = FIELD_COLORS[i % FIELD_COLORS.length];
     fk.appendChild(s);
   });
-  if (fields.length)
+  if (fk.childNodes.length)
     meter.appendChild(grp("attractor fields", fk,
       "One field per model family; the Arbiter's own field is α. Cross-model roles "
       + "(devil/verifier/red-teamer/interpreter) SHOULD sit in a divergent field — "
@@ -849,17 +986,59 @@ function renderSessions(){
   }
 }
 
+// The time-range <select>: auto-detected debate bursts first, then relative windows. Same
+// dataset.sig guard as renderSessions() — a rebuild on every 1.2s poll would fight the mouse.
+function renderRanges(){
+  const el = document.getElementById("range");
+  const opts = rangeOptions((snap && snap.agents) || []);
+  // the burst list changes as a debate runs; if the selected range evaporated, fall back to
+  // "All time" HERE, before renderSig() reads `range`, so the guard sees the value we render
+  if (!opts.some(o => o.id === range)) range = "all";
+  if (document.activeElement === el) return;   // never rebuild the list under an open dropdown
+  const sig = opts.map(o => o.id + ":" + o.n + ":" + o.label).join("|") + "#" + range;
+  if (el.dataset.sig === sig) return;
+  el.dataset.sig = sig;
+  el.textContent = "";
+  const groups = {};
+  for (const o of opts){
+    if (!groups[o.group]){
+      const g = document.createElement("optgroup");
+      g.label = o.group === "debates" ? "Debates (auto-detected)" : "Time windows";
+      el.appendChild(g);
+      groups[o.group] = g;
+    }
+    const opt = document.createElement("option");
+    opt.value = o.id;
+    opt.textContent = o.label;
+    if (o.id === range) opt.selected = true;
+    groups[o.group].appendChild(opt);
+  }
+}
+
+// Change the visible range. If the selected agent falls outside the new view, re-point it at the
+// first visible one — otherwise the detail pane would keep showing an agent the rail no longer lists.
+function setRange(id){
+  range = id;
+  const view = viewAgents();
+  if (!view.some(a => key(a) === sel)) sel = view.length ? key(view[0]) : null;
+  render();
+}
+
 // A cheap signature of everything the rail + transcript actually render. If it's unchanged
 // between polls, render() skips the DOM rebuild entirely and the user's scroll is left alone —
 // this is the real fix for "scroll resets every tick" (and it means a finished debate, whose
 // data never changes again, is never rebuilt at all while you read it).
 function renderSig(){
   if (!snap || !snap.agents) return "none";
-  const a = snap.agents.find(x => key(x) === sel);
-  const rows = snap.agents.map(x =>
+  // signed over the agents IN VIEW: with a filter on, an agent outside the range changing must
+  // NOT trigger a rebuild — nothing on screen would differ, and the rebuild would cost the scroll
+  const view = viewAgents();
+  const a = view.find(x => key(x) === sel);
+  const rows = view.map(x =>
     x.id + ":" + x.status + ":" + (x.activity || "") + ":" + usageTotal(x.usage) +
     ":" + (x.duration_sec || 0) + ":" + (x.heat || 0) + ":" + (x.tok_share || 0)).join("|");
   return rows + "##sel=" + sel + "##ev=" + (a ? a.events.length : -1) +
+         "##rng=" + range +
          "##wl=" + showWL + "##help=" + showHelp +
          "##ind=" + (snap.independence ? snap.independence.status : "") +
          "##lbl=" + (snap.label || "");
@@ -867,17 +1046,22 @@ function renderSig(){
 
 function render(){
   renderSessions();
+  renderRanges();   // before renderSig() below: it can reset a range whose burst has evaporated
   document.getElementById("arb").textContent =
     (snap && snap.arbiter_model) ? "arbiter: " + snap.arbiter_model : "";
 
+  // Everything user-facing below counts the FILTERED view, not the whole session — a caption or a
+  // spend figure describing agents you can't see is the same lie as the divergence meter's.
+  const view = viewAgents();
+  const vn = view.length;
+
   // timeline span caption (matches the terminal's "N agents over <span>")
   const spanEl = document.getElementById("span");
-  if (snap && snap.agents.length){
-    const win = tlWindow(snap.agents);
-    const n = snap.agents.length;
+  if (vn){
+    const win = tlWindow(view);
     spanEl.textContent = win
-      ? n + " agent" + (n === 1 ? "" : "s") + " over " + fmtDur(win.span)
-      : n + " agent" + (n === 1 ? "" : "s");
+      ? vn + " agent" + (vn === 1 ? "" : "s") + " over " + fmtDur(win.span)
+      : vn + " agent" + (vn === 1 ? "" : "s");
   } else spanEl.textContent = "";
 
   const ind = document.getElementById("indep");
@@ -897,18 +1081,26 @@ function render(){
   wlBtn.classList.toggle("on", showWL);
   wlBtn.textContent = (showWL ? "▾ " : "▸ ") + "World Lines";
   document.getElementById("tcount").textContent =
-    n ? n + " agent" + (n === 1 ? "" : "s") : "";
+    !n ? "" : (vn === n ? n + " agent" + (n === 1 ? "" : "s")
+                        : "showing " + vn + " of " + n + " agents");
 
-  // live cost readout: the debate's running spend, refreshed on every poll like the count
-  const tot = debateTotals(snap ? snap.agents : []);
+  // the range picker lights up whenever it is hiding something, so a narrowed view is never silent
+  const rangeEl = document.getElementById("range");
+  rangeEl.classList.toggle("on", range !== "all");
+  rangeEl.title = "Limit the rail and world lines to one debate burst or a recent window. "
+    + "Bursts are detected from idle gaps; windows are measured back from the session's last "
+    + "activity, not from now. Keys: f / F.";
+
+  // live cost readout: the running spend of the agents IN VIEW, refreshed on every poll
+  const tot = debateTotals(view);
   const spend = document.getElementById("tspend");
-  spend.textContent = n
+  spend.textContent = vn
     ? fmtTok(tot.tok) + " tok  ·  " + fmtCost(tot.cost) +
       (tot.cost != null && tot.unpriced ? "+" : "")
     : "";
-  spend.title = n
-    ? "running totals across all " + n + " agent" + (n === 1 ? "" : "s") +
-      " in this snapshot; the cost is indicative, from debate_lib's price table" +
+  spend.title = vn
+    ? "running totals across the " + vn + " agent" + (vn === 1 ? "" : "s") +
+      " in view; the cost is indicative, from debate_lib's price table" +
       (tot.unpriced ? " — " + tot.unpriced + " agent" + (tot.unpriced === 1 ? " has" : "s have")
                       + " no price entry for their model family, so the total is a floor" : "")
     : "";
@@ -971,7 +1163,7 @@ async function poll(){
     snap = await snapRes.json();
     sessions = (await sessRes.json()).sessions || [];
     document.getElementById("err").textContent = "";
-    if (sel === null && snap.agents.length) sel = key(snap.agents[0]);
+    if (sel === null){ const v = viewAgents(); if (v.length) sel = key(v[0]); }
     render();
   } catch (e) {
     document.getElementById("err").textContent = "disconnected — is the viewer still running?";
@@ -983,11 +1175,15 @@ function selectSession(id){
   if (!id) return;
   sessionId = id;
   sel = null; snap = null; _lastRenderSig = null;   // different session => old selection/render are meaningless
+  range = "all";                                    // another session's bursts are not this one's
   poll();
 }
 
 document.getElementById("sess").addEventListener("change", ev => {
   selectSession(ev.target.value);
+});
+document.getElementById("range").addEventListener("change", ev => {
+  setRange(ev.target.value);
 });
 document.getElementById("wl-toggle").addEventListener("click", () => {
   showWL = !showWL; render();
@@ -997,25 +1193,37 @@ document.getElementById("help").addEventListener("click", () => {
 });
 
 // --- keyboard navigation ------------------------------------------------------
-// Move the rail selection (j/k, arrows), step sessions ([ / ]), toggle the panels (w, ?).
+// Move the rail selection (j/k, arrows), step sessions ([ / ]) and time ranges (f / F), toggle
+// the panels (w, ?).
 // Every key is ignored while a form control has focus, so the session <select> keeps its own
 // arrow/type-ahead behaviour — otherwise 'w' inside the dropdown would toggle World Lines.
 function typing(el){
   return !!el && (/^(input|select|textarea)$/i.test(el.tagName) || el.isContentEditable);
 }
 
-// Step along the rail in its rendered order (snap.agents), clamped at both ends — no wrap,
+// Step along the rail in its rendered order (the filtered view), clamped at both ends — no wrap,
 // so holding a key parks you at the first/last agent instead of cycling.
 function moveSel(step){
-  if (!snap || !snap.agents.length) return;
-  const i = snap.agents.findIndex(a => key(a) === sel);
-  const next = Math.min(snap.agents.length - 1, Math.max(0, i < 0 ? 0 : i + step));
-  sel = key(snap.agents[next]);
+  const view = viewAgents();
+  if (!view.length) return;
+  const i = view.findIndex(a => key(a) === sel);
+  const next = Math.min(view.length - 1, Math.max(0, i < 0 ? 0 : i + step));
+  sel = key(view[next]);
   render();   // sel is part of renderSig(), so this rebuilds and the .sel row exists below
   const row = document.querySelector("#rail .ra.sel");
   // block:"nearest" scrolls the rail only when the row is actually off-screen, so it leaves
   // the reader's position alone in the common case (same spirit as the scroll save/restore).
   if (row) row.scrollIntoView({ block: "nearest" });
+}
+
+// Cycle the time range in the dropdown's own order (newest debate → older debates → windows →
+// All time), clamped like moveSel so holding f parks on "All time" instead of wrapping around.
+function stepRange(step){
+  const opts = rangeOptions((snap && snap.agents) || []);
+  if (!opts.length) return;
+  const i = opts.findIndex(o => o.id === range);
+  const next = Math.min(opts.length - 1, Math.max(0, i < 0 ? opts.length - 1 : i + step));
+  if (opts[next].id !== range) setRange(opts[next].id);
 }
 
 function stepSession(step){
@@ -1032,6 +1240,8 @@ document.addEventListener("keydown", ev => {
   const k = ev.key;
   if (k === "j" || k === "ArrowDown") moveSel(1);
   else if (k === "k" || k === "ArrowUp") moveSel(-1);
+  else if (k === "f") stepRange(1);
+  else if (k === "F") stepRange(-1);
   else if (k === "]") stepSession(1);
   else if (k === "[") stepSession(-1);
   else if (k === "w") { showWL = !showWL; render(); }
