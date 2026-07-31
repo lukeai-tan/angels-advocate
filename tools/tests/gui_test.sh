@@ -29,7 +29,9 @@
 # fixtures under one mktemp dir removed on exit.
 #
 # Run from anywhere:  bash tools/tests/gui_test.sh
-# Exit 0 iff every test passed.
+# Exit 0 iff every test that RAN passed. Check (1) needs a JS parser and is skipped when none is
+# installed — the summary reports the skip and the expected total, so a vacuous run cannot read as a
+# clean one. tools/self-check.sh counts those skips and withholds its green line on the same basis.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,9 +45,24 @@ trap 'rm -rf "$WORKDIR"' EXIT
 
 PASS=0
 FAIL=0
+SKIPPED=0
 pass() { PASS=$((PASS + 1)); printf 'PASS  %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf 'FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '        %s\n' "$2"; }
-skip() { printf 'SKIP  %s\n' "$1"; }
+# skip() counts. It used to increment nothing, so a skipped check left BOTH the numerator and the
+# denominator: the tally went from "8 passed" to "7 passed" with no line stating what 8 should have
+# been, so there was no number left that could disagree with reality. Counting it — and printing the
+# total — is what makes a missing check visible when this suite is run on its own.
+skip() { SKIPPED=$((SKIPPED + 1)); printf 'SKIP  %s\n' "$1"; }
+
+# Single summary for both exit paths, so the early abort below can never drift from the normal end.
+# Lowercase "skipped" on purpose: self-check.sh counts skips by matching ^SKIP, so this line must not
+# look like one to the aggregator.
+summary() {
+	printf '\n%d passed, %d failed, %d skipped  (%d checks total)\n' \
+		"$PASS" "$FAIL" "$SKIPPED" "$((PASS + FAIL + SKIPPED))"
+	[ "$SKIPPED" -gt 0 ] && printf 'NOTE  %d check(s) did not run — this suite did not verify what it claims to.\n' "$SKIPPED"
+	return 0
+}
 
 # The asset list is read FROM the module, not hardcoded here, so adding a sidecar (e.g. pulling the
 # CSS out too) is covered by (1)-(3) for free instead of silently escaping the gate.
@@ -56,7 +73,7 @@ for _tok, name in debate_gui._ASSETS: print(name)
 " 2>"$WORKDIR/import.err")
 if [ "${#ASSETS[@]}" -eq 0 ]; then
 	fail "tools/debate_gui.py imports and exposes _ASSETS" "$(tail -3 "$WORKDIR/import.err")"
-	printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
+	summary
 	exit 1
 fi
 pass "tools/debate_gui.py imports; ${#ASSETS[@]} sidecar asset(s) declared"
@@ -162,5 +179,5 @@ EOS" \
 	"asset placeholder"
 
 # ---------------------------------------------------------------------------
-printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
+summary
 [ "$FAIL" -eq 0 ]

@@ -150,6 +150,37 @@ t_failure_still_fails() {
 	pass "a real failure still fails and outranks a concurrent skip"
 }
 
+# ---------------------------------------------------------------------------
+# (5) SUITE-LEVEL DENOMINATOR, on the real gui_test.sh. The aggregator fix above
+#     stops "ALL GREEN" hiding a skip, but a suite run STANDALONE has its own
+#     tally, and gui_test's used to omit skips from both the numerator and the
+#     denominator — "8 passed" quietly became "7 passed" with nothing on screen
+#     stating that 8 was expected, so no number was left that could disagree.
+#     Asserted by ARITHMETIC (declared total == passed+failed+skipped), never
+#     against a hardcoded 8, so adding a check to gui_test doesn't break this.
+# ---------------------------------------------------------------------------
+t_suite_declares_its_denominator() {
+	local gui="$SCRIPT_DIR/gui_test.sh"
+	[ -f "$gui" ] || { fail "denominator: gui_test.sh not found" "$gui"; return; }
+	local out line p f s tot
+	out="$(NODE_BIN=/nonexistent-node bash "$gui" 2>&1)"
+	line="$(grep -E '^[0-9]+ passed, [0-9]+ failed, [0-9]+ skipped' <<<"$out" | tail -1)"
+	if [ -z "$line" ]; then
+		fail "denominator: summary must report passed/failed/skipped" "$(tail -2 <<<"$out")"; return
+	fi
+	read -r p _ f _ s _ <<<"$line"
+	tot="$(sed -E 's/.*\(([0-9]+) checks total\).*/\1/' <<<"$line")"
+	if ! [[ "$tot" =~ ^[0-9]+$ ]]; then
+		fail "denominator: summary must declare the expected total" "$line"; return
+	fi
+	[ "$s" -ge 1 ] || { fail "denominator: the skipped check must be COUNTED, not dropped" "$line"; return; }
+	[ "$tot" -eq "$((p + f + s))" ] || {
+		fail "denominator: declared total != passed+failed+skipped" "$line"; return; }
+	grep -q "did not verify what it claims" <<<"$out" || {
+		fail "denominator: a vacuous run must say so in words" "$line"; return; }
+	pass "a skipping suite counts the skip and declares its own denominator ($line)"
+}
+
 echo "self-check.sh SKIP-accounting suite"
 echo "  target : $SELF_CHECK"
 echo "  tmpdir : $WORKDIR"
@@ -160,6 +191,7 @@ t_skip_not_green
 t_anchored_no_false_positives
 t_strict
 t_failure_still_fails
+t_suite_declares_its_denominator
 
 echo
 echo "-------------------------------------------"
