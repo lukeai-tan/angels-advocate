@@ -113,10 +113,12 @@ tools/
   journal.sh / journal-report.sh   Append / read the decision journal
   verdict-lint.py               Lint a verdict's Dealbreakers block (coverage vs the Devil + evidence)
   preflight.sh                  Static cross-model config guard (run before a structural debate)
-  self-check.sh                 Consolidated integrity run (tests + preflight + gate-sweep)
+  self-check.sh                 Consolidated integrity run (tests + preflight + the three probes)
   gate-sweep.sh                 Scan recent commits for gate under-fires
   transcript-sweep.sh           The denominator gate-sweep lacks: decision *episodes* mined from
                                 session transcripts (raw counts + window sensitivity, never a rate)
+  verdict-timing.sh             Was the 😈 block written BEFORE the work or after? Reads the
+                                ordering out of the transcripts; declared vs measured timing
   verifier-calibration.sh       Prove the verifier isn't rubber-stamping (checked-in fixtures)
   token-report.sh               Per-session / per-subagent token + cost totals
   debate-view.sh / debate-gui.sh / *.py   Watch subagents live (terminal / loopback browser)
