@@ -104,6 +104,28 @@ Do not let a retrospective write-up sit under the same label as a live debate. T
 costume this file exists to forbid, and the audit found it worn in two-thirds of the repo's own
 gated decisions.
 
+**That two-thirds figure is unverified, and `tools/verdict-timing.sh` was built specifically to check
+it and could not.** The probe reads ordering straight off the transcript clock, on two axes, and
+neither adjudicates the claim. The *edits* axis (was the 😈 block written before the fix?) reports a
+direction that holds at every clustering gap — pre-written outnumbers retrospective 2.0x–4.5x — but
+it cannot test the audit's claim at all, because the audit was about the block being composed after
+the **investigation** that surfaced the problems, and investigation leaves no edits to timestamp.
+The *investigation* axis, added 2026-07-31 to close exactly that gap, does resolve (65% of verdicts
+have read-only work before them — below the tool's 90% no-resolution floor, unlike Bash-inclusive
+counting, which hits 100% and measures nothing), but its answer **flips with a free constant**:
+the audit's shape leads 5:2 at a 3-minute episode gap and trails 1:3 at 45 minutes, while the
+unresolved both-sides bucket grows from 3 to 22 of ~31 verdicts. No direction survives every row,
+which is the test the edits axis passes and this one fails.
+
+So: two-thirds is a hand-read number that the mechanical probes can neither confirm nor refute. It
+is **not** demoted the way the acceptance statistic above was — that one was measured and found
+null; this one is simply *unmeasured*, and the honest response to an unmeasured number is to stop
+citing it as settled, not to replace it with a different number. **The rule does not depend on it.**
+The rule rests on the transcript-traced qualitative reading, which never needed a ratio, and on the
+plain point that an objection written after the fix cannot change the fix — true at any frequency.
+Don't quote two-thirds as evidence; if you want a figure here, the work is to make the both-sides
+bucket resolvable, not to pick a gap whose row agrees with you.
+
 ### 2. Structural debate (heavy / irreversible / forked decisions)
 Spawn the real subagents so they reason with independent context and tools:
 - `angel` — returns the steelman. Inherits the Arbiter's model (it advocates *for* the leaning

@@ -118,7 +118,9 @@ tools/
   transcript-sweep.sh           The denominator gate-sweep lacks: decision *episodes* mined from
                                 session transcripts (raw counts + window sensitivity, never a rate)
   verdict-timing.sh             Was the 😈 block written BEFORE the work or after? Reads the
-                                ordering out of the transcripts; declared vs measured timing
+                                ordering out of the transcripts on two axes (edits + read-only
+                                investigation); declared vs measured timing, with a floor that
+                                reports "axis does not resolve" instead of a meaningless ratio
   verifier-calibration.sh       Prove the verifier isn't rubber-stamping (checked-in fixtures)
   token-report.sh               Per-session / per-subagent token + cost totals
   debate-view.sh / debate-gui.sh / *.py   Watch subagents live (terminal / loopback browser)

@@ -199,6 +199,79 @@ print(m.group(1) if m else 'NONE')
 ")"
 expect "moving the era boundary pulls V5 into scope" "$moved" 2
 
+# --- (7) the investigation axis ----------------------------------------------------------------
+# Added 2026-07-31. The edits axis cannot test the 07-27 audit's claim (the audit was about the
+# reading that surfaced the problems, and reading leaves no edits). Three properties matter:
+#
+#   a. MIXED IS SEPARATE — the first cut of this axis classified on `mut_before` alone, so a
+#      verdict with one edit before it and twenty after counted as the audit's shape. That folded
+#      the unresolved bucket into the finding and flipped the headline from 3-vs-1 to 11-vs-1.
+#      Exactly the bug (4) pins on the timing axis, reintroduced on a new one. Pinned here too.
+#   b. BASH IS EXCLUDED — `git commit`, test runs and post-fix verification are not investigation.
+#      On the real corpus including Bash puts investigation-before at 100%, i.e. a constant.
+#   c. THE FLOOR FIRES — if nearly every verdict has investigation before it, the axis has stopped
+#      measuring and the tool must say so instead of printing a ratio.
+shape="$("$PY" -c "
+import sys; sys.path.insert(0, '$TOOLS_DIR')
+import verdict_timing as vt
+c = vt.classify_investigation
+print('|'.join([
+    c(1, 0, 2),   # looked, then judged, then built
+    c(1, 2, 0),   # looked, built, then judged  -> the audit's shape
+    c(1, 1, 1),   # edits BOTH sides -> unresolved, must NOT read as the audit's shape
+    c(0, 2, 0),   # nothing read before the verdict
+]))
+")"
+expect "classify_investigation keeps MIXED out of the audit's shape" "$shape" \
+	"looked, judged, built|looked, built, judged|mixed (edits both sides)|judged cold"
+
+expect "Bash is not counted as investigation" \
+	"$("$PY" -c "
+import sys; sys.path.insert(0, '$TOOLS_DIR')
+import verdict_timing as vt
+print('Bash' in vt.INVESTIGATION_TOOLS, 'Bash' in vt.AMBIGUOUS_TOOLS)
+")" "False True"
+
+# probe_calls_from_entry must count tool NAMES and never touch inputs (same privacy rule as the
+# mutation scan): a canary in a Read's file_path must not survive into anything the probe holds.
+inv="$("$PY" -c "
+import sys; sys.path.insert(0, '$TOOLS_DIR')
+import verdict_timing as vt
+e = {'type': 'assistant', 'isSidechain': False, 'message': {'content': [
+     {'type': 'tool_use', 'name': 'Read', 'input': {'file_path': '/$SECRET'}},
+     {'type': 'tool_use', 'name': 'Grep', 'input': {'pattern': '$SECRET'}},
+     {'type': 'tool_use', 'name': 'Bash', 'input': {'command': 'rm -rf /'}}]}}
+side = dict(e, isSidechain=True)
+print(vt.probe_calls_from_entry(e, vt.INVESTIGATION_TOOLS),
+      vt.probe_calls_from_entry(e, vt.INVESTIGATION_TOOLS + vt.AMBIGUOUS_TOOLS),
+      vt.probe_calls_from_entry(side, vt.INVESTIGATION_TOOLS))
+")"
+expect "probe_calls_from_entry counts (read-only / +Bash / sidechain)" "$inv" "2 3 0"
+
+# The resolving-power floor must actually be checked, not just documented. The fixture's verdicts
+# have no Read/Grep/Glob at all, so the axis reports 0% and must NOT print the failure banner;
+# forcing the floor to 0 must make it fire. A floor that never fires is a comment, not a guard.
+if tools_out="$("$PY" -c "
+import sys, io; sys.path.insert(0, '$TOOLS_DIR')
+import verdict_timing as vt
+vt.RESOLVING_FLOOR = 0.0
+sys.argv = ['x', '--root', '$REPO', '--home', '$HOME_DIR', '--era', '$ERA', '--gap', '5']
+vt.main(sys.argv[1:])
+" 2>&1)"; then
+	if printf '%s' "$tools_out" | grep -q "AXIS DOES NOT RESOLVE"; then
+		pass "the resolving-power floor actually fires when crossed"
+	else
+		fail "the resolving-power floor actually fires when crossed" "banner absent at floor=0"
+	fi
+else
+	fail "the resolving-power floor actually fires when crossed" "run errored"
+fi
+if grep -q "AXIS DOES NOT RESOLVE" "$OUT"; then
+	fail "the floor stays quiet below itself" "banner fired at the default floor"
+else
+	pass "the floor stays quiet below itself"
+fi
+
 # --- the sensitivity block is present and really varies ----------------------------------------
 if grep -q "^SENSITIVITY" "$OUT"; then
 	pass "report carries its SENSITIVITY block"
