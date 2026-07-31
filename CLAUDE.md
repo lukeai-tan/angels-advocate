@@ -82,9 +82,14 @@ fingerprint quantitative. A 2026-07-31 re-measurement over 54 entries reproduced
 exactly (11.8% vs 31.2%, 2.66x) *and* tested them for the first time: **Fisher's exact p = 0.175 —
 not significant.** The whole gap rested on **two** accepted light-mode dealbreakers out of 17 — move
 one entry and the ratio swings by more than the effect being claimed. It has shrunk as n grew:
-2.66x in the audited window (light 2/17, structural 10/32), 1.16x on entries after the rule landed
-(17/75 = 22.7% vs 16/61 = 26.2%, p = 0.690), and 1.35x pooled over the whole journal as of
-2026-07-31 (19/92 = 20.7% vs 26/93 = 28.0%, p = 0.304). *Every* comparison is null. So the honest
+2.66x in the audited window (light 2/17, structural 10/32 — a window the audit fixed, so those
+digits are stable), and it decays toward 1.0x on every wider slice, both entries-after-the-rule and
+the whole journal pooled. *Every* comparison is null. Those wider figures are deliberately **not**
+written out as digits here: they move with every new journal entry and **no tool recomputes them**
+(`journal-report.sh` counts `rigor` and counts dispositions, but never crosses the two), so any
+figure pinned into this file is stale by the next decision. This paragraph used to pin one — and it
+was already wrong on the very day it claimed to be current. Re-derive from `.angel-advoc/journal.jsonl`
+when you need the live numbers, and don't re-freeze them here. So the honest
 statement is: the ratio is **suggestive and underpowered**, consistent with the narration reading
 and equally consistent with noise. It is not a measured fingerprint, and nothing should be
 built on it as though the effect size were established. Treat the transcript evidence as the reason
@@ -110,12 +115,15 @@ neither adjudicates the claim. The *edits* axis (was the 😈 block written befo
 direction that holds at every clustering gap — pre-written outnumbers retrospective 2.0x–4.5x — but
 it cannot test the audit's claim at all, because the audit was about the block being composed after
 the **investigation** that surfaced the problems, and investigation leaves no edits to timestamp.
-The *investigation* axis, added 2026-07-31 to close exactly that gap, does resolve (65% of verdicts
-have read-only work before them — below the tool's 90% no-resolution floor, unlike Bash-inclusive
-counting, which hits 100% and measures nothing), but its answer **flips with a free constant**:
-the audit's shape leads 5:2 at a 3-minute episode gap and trails 1:3 at 45 minutes, while the
-unresolved both-sides bucket grows from 3 to 22 of ~31 verdicts. No direction survives every row,
-which is the test the edits axis passes and this one fails.
+The *investigation* axis, added 2026-07-31 to close exactly that gap, does resolve — read-only work
+precedes most verdicts but not near-all of them, clearing the tool's 90% no-resolution floor, which
+Bash-inclusive counting fails outright by hitting 100% and measuring nothing (which is why Bash is
+excluded). But its answer **flips with a free constant**: the audit's shape leads at a short episode
+gap and trails at a long one, while the unresolved both-sides bucket swells to most of the
+population. No direction survives every row, which is the test the edits axis passes and this one
+fails. Digits are deliberately not pinned here either — `verdict-timing.sh` recomputes the whole
+sensitivity curve, and its own resolving-power floor, on every run; quoting one frozen row is
+exactly the "pick a gap whose row agrees with you" error this section closes on.
 
 So: two-thirds is a hand-read number that the mechanical probes can neither confirm nor refute. It
 is **not** demoted the way the acceptance statistic above was — that one was measured and found
@@ -528,6 +536,12 @@ itself); omit it for advisory/light decisions. Full token totals across all sess
   irreversible/schema, dependency, infra, large churn), and flags gate-worthy commits with **no
   journal entry nearby** as candidate under-fires. It's the counterpart to `journal-report.sh --audit`
   (which audits what was logged); run it periodically to surface reviews that should have happened.
+  Its population is *commits*, so it is structurally blind to decisions that never became one —
+  `tools/transcript-sweep.sh` supplies that missing denominator by mining *edit episodes* from the
+  session transcripts instead, and `tools/verdict-timing.sh` measures a third thing again (the
+  **order** the 😈 block was written in). All three are wired into `tools/self-check.sh` as
+  informational probes: they report counts, never a pass/fail, because their denominators are
+  judgement calls and a threshold on one would be the very costume this file forbids.
 
 ---
 
