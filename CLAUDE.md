@@ -72,10 +72,27 @@ of it. The bar to escalate is low: any live dealbreaker, any irreversible action
 **It is usually narration, not deliberation — know which you are doing.** A 2026-07-27 audit of this
 repo's own journal traced light-mode decisions in the transcript and found the 😈 block is typically
 composed *after* the investigation that found the problems and *after* the fix landed — the model
-discovers a trap while working, fixes it, then writes it up as though freshly caught. The
-fingerprint is quantitative: light mode **accepted** 12% of its dealbreakers versus 31% for
-structural debate, a 2.6x gap. That is what you would expect if light mode rarely produces the "I
-looked and chose NOT to fix" outcome that only a live adversary forces.
+discovers a trap while working, fixes it, then writes it up as though freshly caught. That
+qualitative reading — a transcript-traced look at what actually happened — is the load-bearing
+evidence for the rule below, and it still stands.
+
+**The supporting statistic does not, and this file used to overstate it.** The 07-27 audit reported
+light mode accepting 12% of its dealbreakers versus 31% for structural, "a 2.6x gap," and called the
+fingerprint quantitative. A 2026-07-31 re-measurement over 54 entries reproduced those numbers
+exactly (11.8% vs 31.2%, 2.66x) *and* tested them for the first time: **Fisher's exact p = 0.175 —
+not significant.** The whole gap rested on **two** accepted light-mode dealbreakers out of 17 — move
+one entry and the ratio swings by more than the effect being claimed. It has shrunk as n grew:
+2.66x in the audited window (light 2/17, structural 10/32), 1.16x on entries after the rule landed
+(17/75 = 22.7% vs 16/61 = 26.2%, p = 0.690), and 1.35x pooled over the whole journal as of
+2026-07-31 (19/92 = 20.7% vs 26/93 = 28.0%, p = 0.304). *Every* comparison is null. So the honest
+statement is: the ratio is **suggestive and underpowered**, consistent with the narration reading
+and equally consistent with noise. It is not a measured fingerprint, and nothing should be
+built on it as though the effect size were established. Treat the transcript evidence as the reason
+for the rule and the ratio as a weak corroborator worth re-checking as n grows — the same standard
+this file applies to everyone else's claims. *If you re-measure it: bucket entries by `rigor`, not
+by `gate`. Bucketing on `gate` files every `light self-check` that fired on a fork under
+"structural" and materially changes the answer — an error made and caught while writing this
+paragraph.*
 
 So: a light self-check is an honest **pre-commit checklist and a record of careful engineering**. It
 is not an adversarial pass, and the 😈 glyph must not imply one. Two ways to keep it honest — pick
