@@ -234,6 +234,84 @@ print("Dealbreaker dispositions:")
 bar(disp_counts)
 print()
 
+
+def _fisher_exact_2x2(a, b, c, d):
+    """Two-tailed Fisher's exact p for [[a,b],[c,d]]. No scipy.
+
+    Written out longhand rather than imported because the only reason to print this number is
+    to keep "every comparison is null" checkable — a check that silently vanishes on a machine
+    without scipy is not a check.
+    """
+    from math import comb
+    n = a + b + c + d
+    if n == 0:
+        return None
+    r1, r2, c1 = a + b, c + d, a + c
+    denom = comb(n, c1)
+    if denom == 0:
+        return None
+
+    def p_of(x):
+        return comb(r1, x) * comb(r2, c1 - x) / denom
+
+    p_obs = p_of(a)
+    lo, hi = max(0, c1 - r2), min(r1, c1)
+    return min(1.0, sum(p_of(x) for x in range(lo, hi + 1) if p_of(x) <= p_obs * (1 + 1e-9)))
+
+
+# Acceptance rate by RIGOR — the cross-tab this script never had, which is why CLAUDE.md was
+# reduced to hand-copying the figure and going stale the same day it was written.
+#
+# Bucketed on `rigor`, NEVER on `gate`. Bucketing on gate files every "light self-check" that
+# fired on a fork under "structural" and materially changes the answer. That error was made and
+# caught by hand once; computing it here is what stops it being made again silently.
+def _rigor_bucket(v):
+    s = str(v).strip().lower()
+    if s.startswith("light"):
+        return "light self-check"
+    if "structural" in s:
+        return "structural debate"
+    return None
+
+
+acc = {}   # rigor bucket -> [accepted, total dealbreakers]
+for e in entries:
+    b = _rigor_bucket(g(e, "rigor", ""))
+    if not b:
+        continue
+    for d in (e.get("dealbreakers") or []):
+        if not isinstance(d, dict):
+            continue
+        slot = acc.setdefault(b, [0, 0])
+        slot[1] += 1
+        if str(g(d, "disposition", "")).strip().lower().startswith("accept"):
+            slot[0] += 1
+
+print("Dealbreaker acceptance by RIGOR (bucketed on `rigor`, never on `gate`):")
+if not acc:
+    print("   (no entries carry a recognised rigor label)")
+else:
+    width = max(max(len(k) for k in acc), len("ratio structural/light"))
+    for k in sorted(acc):
+        a_, t_ = acc[k]
+        rate = f"{100.0 * a_ / t_:.1f}%" if t_ else "—"
+        print(f"   {k.ljust(width)}  accepted {a_}/{t_} = {rate}")
+    L, S = acc.get("light self-check"), acc.get("structural debate")
+    if L and S and L[1] and S[1] and L[0]:
+        ratio = (S[0] / S[1]) / (L[0] / L[1])
+        p = _fisher_exact_2x2(L[0], L[1] - L[0], S[0], S[1] - S[0])
+        if p is None:
+            tail = "p unavailable"
+        elif p >= 0.05:
+            tail = f"Fisher's exact (2-tailed) p = {p:.3f}  →  null"
+        else:
+            tail = (f"Fisher's exact (2-tailed) p = {p:.3f}  →  SIGNIFICANT at .05 — "
+                    "CLAUDE.md's demotion of this statistic needs re-reading")
+        print(f"   {'ratio structural/light'.ljust(width)}  {ratio:.2f}x   {tail}")
+    print("   This is the figure CLAUDE.md deliberately does not pin. It moves with every entry —")
+    print("   read it here; do not copy it back into a file that cannot recompute it.")
+print()
+
 print("Verifier outcomes:")
 bar(verifier_counts)
 print()

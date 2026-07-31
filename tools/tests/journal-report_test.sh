@@ -189,6 +189,73 @@ t_bad_flag() {
 	pass "unknown flag -> non-zero exit"
 }
 
+# ---------------------------------------------------------------------------
+# (10) acceptance-by-rigor cross-tab: counts, ratio, and a Fisher p checked
+#      against a textbook value. The p is computed longhand in-script (no scipy),
+#      so an untested implementation would silently print a wrong number into the
+#      one place CLAUDE.md now tells readers to go for it.
+# ---------------------------------------------------------------------------
+t_acceptance_by_rigor() {
+	local jp; jp="$(fresh_journal)"
+	# light: 3 accepted of 4   structural: 1 accepted of 4  ->  2x2 = [[3,1],[1,3]]
+	# That is Fisher's tea-tasting table; its two-tailed exact p is 0.4857.
+	seed_line "$jp" '{"ts":"2026-07-01T00:00:00Z","gate":"light","rigor":"light self-check","target":"t","verdict":"v","dealbreakers":[{"item":"a","disposition":"accepted"},{"item":"b","disposition":"accepted"},{"item":"c","disposition":"accepted"},{"item":"d","disposition":"resolved"}],"verifier":"n/a"}'
+	seed_line "$jp" '{"ts":"2026-07-02T00:00:00Z","gate":"structural","rigor":"structural debate","target":"t","verdict":"v","dealbreakers":[{"item":"e","disposition":"accepted"},{"item":"f","disposition":"resolved"},{"item":"g","disposition":"resolved"},{"item":"h","disposition":"resolved"}],"verifier":"CONFORMS"}'
+	run_report "$jp" --audit
+
+	case "$OUT" in
+		*"light self-check"*"accepted 3/4 = 75.0%"*) pass "acceptance-by-rigor: light counted 3/4" ;;
+		*) fail "acceptance-by-rigor: light counted 3/4" "not found in audit output" ;;
+	esac
+	case "$OUT" in
+		*"structural debate"*"accepted 1/4 = 25.0%"*) pass "acceptance-by-rigor: structural counted 1/4" ;;
+		*) fail "acceptance-by-rigor: structural counted 1/4" "not found in audit output" ;;
+	esac
+	# Fisher's exact, two-tailed, on [[3,1],[1,3]] = 0.4857 -> printed to 3dp.
+	case "$OUT" in
+		*"p = 0.486"*) pass "acceptance-by-rigor: Fisher p matches the textbook 0.4857" ;;
+		*) fail "acceptance-by-rigor: Fisher p matches the textbook 0.4857" \
+			"$(printf '%s\n' "$OUT" | grep -i 'fisher' || echo '(no fisher line printed)')" ;;
+	esac
+	# p >= .05 must be labelled null, not left for the reader to judge.
+	case "$OUT" in
+		*"→  null"*) pass "acceptance-by-rigor: a non-significant p is labelled null" ;;
+		*) fail "acceptance-by-rigor: a non-significant p is labelled null" "no null label" ;;
+	esac
+}
+
+# ---------------------------------------------------------------------------
+# (11) THE BUCKETING TRAP. CLAUDE.md records this exact error being made by hand:
+#      bucketing on `gate` files every "light self-check" that fired on a fork
+#      under "structural" and materially changes the answer. A light entry whose
+#      GATE is "fork" must still count as LIGHT.
+# ---------------------------------------------------------------------------
+t_acceptance_buckets_on_rigor_not_gate() {
+	local jp; jp="$(fresh_journal)"
+	# gate=fork but rigor=light -> a gate-bucketing implementation files this under structural.
+	seed_line "$jp" '{"ts":"2026-07-03T00:00:00Z","gate":"fork","rigor":"light self-check","target":"t","verdict":"v","dealbreakers":[{"item":"a","disposition":"accepted"},{"item":"b","disposition":"accepted"}],"verifier":"n/a"}'
+	seed_line "$jp" '{"ts":"2026-07-04T00:00:00Z","gate":"structural","rigor":"structural debate","target":"t","verdict":"v","dealbreakers":[{"item":"c","disposition":"resolved"},{"item":"d","disposition":"resolved"}],"verifier":"CONFORMS"}'
+	run_report "$jp" --audit
+
+	case "$OUT" in
+		*"light self-check"*"accepted 2/2 = 100.0%"*)
+			pass "bucketing trap: gate=fork + rigor=light counts as LIGHT" ;;
+		*) fail "bucketing trap: gate=fork + rigor=light counts as LIGHT" \
+			"a gate-bucketed implementation would show light as absent and structural as 2/4" ;;
+	esac
+	case "$OUT" in
+		*"structural debate"*"accepted 0/2 = 0.0%"*)
+			pass "bucketing trap: structural keeps only its own 2 dealbreakers" ;;
+		*) fail "bucketing trap: structural keeps only its own 2 dealbreakers" "miscounted" ;;
+	esac
+	# The header must say which key it bucketed on, so the output cannot mislead a reader.
+	case "$OUT" in
+		*'bucketed on `rigor`, never on `gate`'*)
+			pass "bucketing trap: output states which key it bucketed on" ;;
+		*) fail "bucketing trap: output states which key it bucketed on" "header missing" ;;
+	esac
+}
+
 echo "journal-report.sh regression suite"
 echo "  target : $REPORT_SH"
 echo "  tmpdir : $WORKDIR"
@@ -203,6 +270,8 @@ t_skip_count
 t_recent_n
 t_malformed_tolerated
 t_bad_flag
+t_acceptance_by_rigor
+t_acceptance_buckets_on_rigor_not_gate
 
 echo
 echo "-------------------------------------------"

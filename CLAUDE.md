@@ -85,11 +85,13 @@ one entry and the ratio swings by more than the effect being claimed. It has shr
 2.66x in the audited window (light 2/17, structural 10/32 — a window the audit fixed, so those
 digits are stable), and it decays toward 1.0x on every wider slice, both entries-after-the-rule and
 the whole journal pooled. *Every* comparison is null. Those wider figures are deliberately **not**
-written out as digits here: they move with every new journal entry and **no tool recomputes them**
-(`journal-report.sh` counts `rigor` and counts dispositions, but never crosses the two), so any
-figure pinned into this file is stale by the next decision. This paragraph used to pin one — and it
-was already wrong on the very day it claimed to be current. Re-derive from `.angel-advoc/journal.jsonl`
-when you need the live numbers, and don't re-freeze them here. So the honest
+written out as digits here: they move with every new journal entry, so any figure pinned into this
+file is stale by the next decision — this paragraph used to pin one, and it was already wrong on the
+very day it claimed to be current. **`journal-report.sh --audit` now recomputes it**: it
+cross-tabulates dealbreaker acceptance by rigor and prints the ratio with a two-tailed Fisher's
+exact p, labelling the result null or significant, on every run. Read the live numbers there and
+don't re-freeze them here. It buckets on `rigor` and says so in its own header — the trap below is
+now enforced by a test (`journal-report_test.sh`), not just warned about. So the honest
 statement is: the ratio is **suggestive and underpowered**, consistent with the narration reading
 and equally consistent with noise. It is not a measured fingerprint, and nothing should be
 built on it as though the effect size were established. Treat the transcript evidence as the reason
