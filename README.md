@@ -115,6 +115,8 @@ tools/
   preflight.sh                  Static cross-model config guard (run before a structural debate)
   self-check.sh                 Consolidated integrity run (tests + preflight + gate-sweep)
   gate-sweep.sh                 Scan recent commits for gate under-fires
+  transcript-sweep.sh           The denominator gate-sweep lacks: decision *episodes* mined from
+                                session transcripts (raw counts + window sensitivity, never a rate)
   verifier-calibration.sh       Prove the verifier isn't rubber-stamping (checked-in fixtures)
   token-report.sh               Per-session / per-subagent token + cost totals
   debate-view.sh / debate-gui.sh / *.py   Watch subagents live (terminal / loopback browser)
