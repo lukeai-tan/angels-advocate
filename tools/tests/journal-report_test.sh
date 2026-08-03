@@ -193,7 +193,7 @@ t_bad_flag() {
 # (10) acceptance-by-rigor cross-tab: counts, ratio, and a Fisher p checked
 #      against a textbook value. The p is computed longhand in-script (no scipy),
 #      so an untested implementation would silently print a wrong number into the
-#      one place CLAUDE.md now tells readers to go for it.
+#      one place the Arbiter spec now tells readers to go for it.
 # ---------------------------------------------------------------------------
 t_acceptance_by_rigor() {
 	local jp; jp="$(fresh_journal)"
@@ -225,7 +225,7 @@ t_acceptance_by_rigor() {
 }
 
 # ---------------------------------------------------------------------------
-# (11) THE BUCKETING TRAP. CLAUDE.md records this exact error being made by hand:
+# (11) THE BUCKETING TRAP. The calibration notes record this exact error being made by hand:
 #      bucketing on `gate` files every "light self-check" that fired on a fork
 #      under "structural" and materially changes the answer. A light entry whose
 #      GATE is "fork" must still count as LIGHT.

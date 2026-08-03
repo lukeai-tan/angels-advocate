@@ -7,7 +7,7 @@ tools: Glob, Grep, Read
 # re-derive the Arbiter's own interpretation and miss the alternative the user
 # actually meant. Assumes the Arbiter runs on Opus; if YOUR Arbiter runs on Sonnet,
 # change this to `opus` (or any non-Arbiter model). No `Agent` tool: cross-model roles
-# don't nest (a helper would inherit the Arbiter's model). See CLAUDE.md.
+# don't nest (a helper would inherit the Arbiter's model). See the Arbiter spec (.claude/rules/arbiter.md).
 model: claude-sonnet-4-6
 ---
 

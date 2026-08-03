@@ -6,7 +6,7 @@ tools: Glob, Grep, Read, Bash, Edit, Write
 # (one builder per independent unit), so builders never need to nest. Inherits the Arbiter's
 # model — implementing correctly needs real understanding of the change, and a builder carries
 # no cross-model independence guarantee (it EXECUTES; it doesn't judge, unlike devil/verifier
-# which DON'T get to inherit). See CLAUDE.md 'Delegating execution'.
+# which DON'T get to inherit). See the Arbiter spec (.claude/rules/arbiter.md), 'The verification pass'.
 model: inherit
 ---
 

@@ -14,8 +14,8 @@ Run it from the project root. It walks every session transcript under this proje
 output / cache-read / cache-create / total, newest session first — and a grand total. Table numbers
 are abbreviated (`84.8M`); `--json` carries the exact integers.
 
-The second use is pricing a **structural** decision for its journal entry (CLAUDE.md's journal
-section). Pass the timestamp of your *first* spawn so earlier work in the same session isn't billed
+The second use is pricing a **structural** decision for its journal entry (the Arbiter spec's
+journal section). Pass the timestamp of your *first* spawn so earlier work in the same session isn't billed
 to this debate:
 
 ```

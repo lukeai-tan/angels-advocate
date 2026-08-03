@@ -6,7 +6,7 @@ tools: Glob, Grep, Read, Bash
 # the advocate for the Arbiter's leaning direction, not a check on it — so sharing
 # the model costs nothing here. The `devil` (opposing advocate) and `verifier`
 # (post-hoc check) are the roles that run cross-model; keeping the Angel on the
-# Arbiter's model still yields a cross-model DEBATE (Angel vs Devil). See CLAUDE.md.
+# Arbiter's model still yields a cross-model DEBATE (Angel vs Devil). See the Arbiter spec (.claude/rules/arbiter.md).
 model: inherit
 ---
 

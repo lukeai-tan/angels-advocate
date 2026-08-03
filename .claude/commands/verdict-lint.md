@@ -23,7 +23,7 @@ DEVIL="$(grep -rl '"attributionAgent":"devil"' "$S" --include='agent-*.jsonl' | 
 python3 tools/verdict-lint.py --devil "$DEVIL" /tmp/verdict-block.md
 ```
 
-Run it from the project root. CLAUDE.md mandates this lint on any structural-debate verdict, but
+Run it from the project root. The Arbiter spec (`.claude/rules/arbiter.md`) mandates this lint on any structural-debate verdict, but
 step 2 is the reason the rule gets skipped by hand — hence the snippet. If `$DEVIL` comes out empty
 (a light self-check spawns nothing), either drop `--devil` for the block-only checks or pass
 `--devil-count <n>` with the count you read off the Devil's output yourself.
@@ -36,7 +36,7 @@ What it checks (all three, all mechanical):
 - **Well-formedness** — every bullet carries a recognised disposition (resolved / accepted /
   accepting / refuted).
 - **Refuted-with-evidence** — a `refuted` bullet with no evidence token (reproduction, measurement,
-  counter-example, exit code, `file:line`) FAILs. This is the CLAUDE.md rule, now enforced.
+  counter-example, exit code, `file:line`) FAILs. This is the Arbiter-spec rule, now enforced.
 
 Exit `0` = CLEAN, `1` = one or more FAILs. Note the quiet third case: if the `--devil` transcript
 can't be parsed it warns on stderr and **skips the coverage check** — a CLEAN with that warning is a

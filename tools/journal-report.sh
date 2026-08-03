@@ -3,7 +3,7 @@
 #
 # The journal (.angel-advoc/journal.jsonl) is append-only and, until now, write-only:
 # journal.sh logs each gated verdict but nothing read them back. This closes the loop
-# CLAUDE.md promised under "/journal" and "/gate-audit" — turning the log from a
+# the Arbiter spec promised under "/journal" and "/gate-audit" — turning the log from a
 # write-only file into an actual feedback loop.
 #
 # Two modes:
@@ -259,7 +259,7 @@ def _fisher_exact_2x2(a, b, c, d):
     return min(1.0, sum(p_of(x) for x in range(lo, hi + 1) if p_of(x) <= p_obs * (1 + 1e-9)))
 
 
-# Acceptance rate by RIGOR — the cross-tab this script never had, which is why CLAUDE.md was
+# Acceptance rate by RIGOR — the cross-tab this script never had, which is why the Arbiter spec was
 # reduced to hand-copying the figure and going stale the same day it was written.
 #
 # Bucketed on `rigor`, NEVER on `gate`. Bucketing on gate files every "light self-check" that
@@ -306,9 +306,9 @@ else:
             tail = f"Fisher's exact (2-tailed) p = {p:.3f}  →  null"
         else:
             tail = (f"Fisher's exact (2-tailed) p = {p:.3f}  →  SIGNIFICANT at .05 — "
-                    "CLAUDE.md's demotion of this statistic needs re-reading")
+                    "docs/calibration-notes.md's demotion of this statistic needs re-reading")
         print(f"   {'ratio structural/light'.ljust(width)}  {ratio:.2f}x   {tail}")
-    print("   This is the figure CLAUDE.md deliberately does not pin. It moves with every entry —")
+    print("   This is the figure the Arbiter spec deliberately does not pin. It moves with every entry —")
     print("   read it here; do not copy it back into a file that cannot recompute it.")
 print()
 
@@ -360,5 +360,5 @@ if priced:
     for e in costliest:
         print(f"   - {fmt_tok(tok_total(e.get('tokens'))):>7}  {one_line(g(e,'target','(no target)'), 70)}")
 else:
-    print("   (none logged tokens yet — add a `tokens` field via tools/token-report.sh; see CLAUDE.md)")
+    print("   (none logged tokens yet — add a `tokens` field via tools/token-report.sh; see the Arbiter spec)")
 PY

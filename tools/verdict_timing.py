@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """verdict_timing.py — was the 😈 block written BEFORE the work, or after it?
 
-WHY THIS EXISTS. CLAUDE.md's anti-retrospective rule rests on a 2026-07-27 audit that read
+WHY THIS EXISTS. The Arbiter spec's anti-retrospective rule rests on a 2026-07-27 audit that read
 transcripts by hand and found the Devil's block typically composed *after* the fix had landed. The
 file also carried a statistic said to corroborate it (light mode accepting 12% of dealbreakers vs
 31% for structural, "a 2.6x gap"). That statistic was demoted on 2026-07-31: it reproduces, but
@@ -19,7 +19,7 @@ WHAT IT COMPARES. Every verdict block declares its own rigor, and several declar
 outright ("Devil written before editing", "(retrospective)", "(written pre-build)"). So the probe
 reports DECLARED timing against MEASURED timing. Two failures are distinguishable:
 
-  · an *undeclared* light self-check that measures retrospective — the costume CLAUDE.md forbids;
+  · an *undeclared* light self-check that measures retrospective — the costume the Arbiter spec forbids;
   · a self-declared "before editing" that measures retrospective — a claim the clock contradicts.
 
 And `(retrospective)` measuring retrospective is COMPLIANCE, not a failure: the rule explicitly

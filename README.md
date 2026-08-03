@@ -35,12 +35,12 @@ Arbiter delegate parallel-independent build work.
 | 🧭 **Interpreter** *(optional)* | Read-only, **cross-model**. Fires on the *wrong-problem* gate: when a request is ambiguous, returns 2–4 `INTERPRETATIONS` and the one question that resolves them — so the workflow doesn't build the wrong thing correctly. Hands the fork over; never picks. |
 | 🛡️ **Red-Teamer** *(optional)* | A security-specialized Devil, **cross-model**. Attacks only the security surface — injection, secrets, authz, path/shell, deserialization, SSRF, supply-chain, unsafe defaults — and reproduces the exploit where it safely can. Returns `SECURITY FINDINGS`. |
 | 📊 **Profiler** *(optional)* | A Researcher specialized to perf/cost. Measures latency, memory, scaling, and token/dollar cost with methodology instead of guessing. Can fan out parallel trials. Returns a `PROFILE`; never rules. |
-| ✍️ **Scribe** *(optional)* | Runs at verification-time. Syncs docs (README, CLAUDE.md, comments) to a landed change — **docs only, never logic** — and returns a `DOC SYNC REPORT`. Honest "no change" when nothing drifted. |
+| ✍️ **Scribe** *(optional)* | Runs at verification-time. Syncs docs (README, the Arbiter spec, comments) to a landed change — **docs only, never logic** — and returns a `DOC SYNC REPORT`. Honest "no change" when nothing drifted. |
 | ✂️ **TL;DR** *(optional)* | Utility summarizer. Distills a long debate or verdict, *fidelity over brevity* — preserves dealbreakers, caveats, and dissent, never upgrades confidence, and flags if it was handed a paraphrase. |
 
 ## How it works
 
-1. **The gate.** `CLAUDE.md` loads every turn but review does **not** fire on everything. It fires
+1. **The gate.** The Arbiter spec (`.claude/rules/arbiter.md`) loads every turn but review does **not** fire on everything. It fires
    on decisions that are hard to reverse, architectural/multi-file, assumption-heavy, forked, or at
    risk of solving the wrong problem. Trivial, reversible, fully-specified work just gets done.
 2. **Two modes, honestly labelled.**
@@ -90,7 +90,9 @@ assumptions** (including "is this even the right problem?") **· caller/consumer
 ## Layout
 
 ```
-CLAUDE.md                       The Arbiter — gate, modes, five lenses, output format (+ falsifier)
+.claude/rules/arbiter.md        The Arbiter spec — gate, modes, five lenses, output format (+ falsifier); loads every session
+CLAUDE.md                       Thin dev pointer (this repo only) → the rule + calibration notes
+docs/calibration-notes.md       On-demand rationale behind the honesty rules (dev reference; not shipped)
 .claude/agents/
   angel.md  devil.md            The two core advocates
   verifier.md                   Post-implementation conformance check (cross-model)
@@ -130,7 +132,7 @@ tools/
 
 ## Using it
 
-Point Claude Code at this folder (the `CLAUDE.md` and `.claude/agents/` are picked up automatically).
+Point Claude Code at this folder (the `.claude/rules/arbiter.md` and `.claude/agents/` are picked up automatically).
 The `angel` and `devil` subagents register on startup — if you edit them mid-session, restart to
 reload. Then just work: the gate stays quiet on small stuff and convenes the debate when a decision
 earns it.
@@ -145,16 +147,17 @@ To use the workflow in other projects, run the installer:
 ./install.sh --repo <path> --dry-run   # preview, change nothing
 ```
 
-It copies the agents, commands, and `tools/`, **merges** the spawn-depth env into `settings.json`
-(your keys preserved), and injects the Arbiter instructions into `CLAUDE.md` between managed
-markers — so re-running replaces just that block and never touches your surrounding content.
-Global mode also rewrites `tools/…` references to `~/.claude/tools/` so they resolve anywhere.
+It copies the agents, commands, rules, and `tools/`, **merges** the spawn-depth env into `settings.json`
+(your keys preserved), and ships the Arbiter spec as `.claude/rules/arbiter.md` — a native rule that
+loads every session — so your `CLAUDE.md` is left untouched (a legacy managed block from older
+installs is stripped on upgrade). Global mode also rewrites `tools/…` references in the commands and
+rule to `~/.claude/tools/` so they resolve anywhere.
 It never copies your `.angel-advoc/` journal. After installing, verify cross-model independence
 for your Arbiter model: `tools/preflight.sh <your-model>` (e.g. `claude-opus-4-8`).
 
 ### Summon it anywhere — the `/angel-advoc` command
 
-The always-on gate only works *inside this repo*, where `CLAUDE.md` loads. To force the two-sided
+The always-on gate only works *inside this repo*, where `.claude/rules/arbiter.md` loads. To force the two-sided
 debate on demand in **any** project, install it at user scope:
 
 ```

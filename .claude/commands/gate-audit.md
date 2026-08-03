@@ -13,8 +13,8 @@ dealbreaker dispositions, verifier outcomes, verdicts that FAILED verification, 
 dealbreakers, and the under-firing skip count) so the numbers are trustworthy rather than
 model-estimated. **Do not recompute the stats yourself** — read them from the script's output.
 
-Then add a short Arbiter interpretation *on top of* the raw numbers, focused on what CLAUDE.md
-says the journal exists to catch:
+Then add a short Arbiter interpretation *on top of* the raw numbers, focused on what the Arbiter
+spec (`.claude/rules/arbiter.md`) says the journal exists to catch:
 
 - **Verdicts that failed verification** — if any, these are the highest-signal rows. What went
   wrong, and is there a common shape?

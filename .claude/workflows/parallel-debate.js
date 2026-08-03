@@ -20,7 +20,7 @@ export const meta = {
 //                  worktree isolation AFTER you've ruled. Only pass this once the Arbiter
 //                  (you, outside the workflow) has issued a verdict and wants it built out.
 // The workflow gathers and returns the debate material; it NEVER issues the verdict itself —
-// "the debate informs; the Arbiter decides" (CLAUDE.md). Rule from the returned object, then
+// "the debate informs; the Arbiter decides" (the Arbiter spec). Rule from the returned object, then
 // run tools/verdict-lint.py on your Dealbreakers block.
 // ---------------------------------------------------------------------------
 const brief = (typeof args === 'string') ? args : (args && args.brief)

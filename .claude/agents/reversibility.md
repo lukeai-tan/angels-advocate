@@ -7,7 +7,7 @@ tools: Glob, Grep, Read, Bash
 # irreversible gate fires ~1/42 decisions, and prose-only-triggered specialists sit idle
 # here — cf. tldr 0/71). This file is kept as an OPTIONAL manual-spawn tool for the rare
 # genuinely-destructive change; it is intentionally absent from CROSS_MODEL_ROLES and the
-# CLAUDE.md roster, so preflight.sh / --check-independence do not cover it — verify its
+# Arbiter-spec roster, so preflight.sh / --check-independence do not cover it — verify its
 # model by hand if you spawn it.
 #
 # Runs on a DIFFERENT model than the Arbiter — an attacker on the recovery story that
@@ -16,7 +16,7 @@ tools: Glob, Grep, Read, Bash
 # runs on Sonnet, change this to `opus` (or any non-Arbiter model) or the independence is
 # lost. No `Agent` tool: nesting is withheld from every cross-model role, because a helper
 # would inherit the Arbiter's model and silently collapse the independence this role
-# exists to provide. See CLAUDE.md.
+# exists to provide. See the Arbiter spec (.claude/rules/arbiter.md).
 model: claude-sonnet-4-6
 ---
 

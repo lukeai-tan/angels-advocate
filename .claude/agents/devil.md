@@ -5,7 +5,7 @@ tools: Glob, Grep, Read, Bash
 # Runs on a DIFFERENT model than the Arbiter for genuine cross-model independence
 # — an attacker that doesn't share the proponent's blind spots. This value assumes
 # the Arbiter runs on Opus; if YOUR Arbiter runs on Sonnet, change this to `opus`
-# (or any non-Arbiter model) or the independence is lost. See CLAUDE.md.
+# (or any non-Arbiter model) or the independence is lost. See the Arbiter spec (.claude/rules/arbiter.md).
 model: claude-sonnet-4-6
 ---
 

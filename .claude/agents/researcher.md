@@ -11,7 +11,7 @@ tools: Glob, Grep, Read, Bash, WebFetch, WebSearch, Agent
 # Inherits the Arbiter's model by default — it gathers and reports facts rather than
 # judging, so cross-model independence (the point of devil/verifier) doesn't apply.
 # On a company-funded Opus setup, inheriting Opus buys deeper investigation; drop to
-# `sonnet`/`haiku` for cheap lookups if a debate is shallow. See CLAUDE.md.
+# `sonnet`/`haiku` for cheap lookups if a debate is shallow. See the Arbiter spec (.claude/rules/arbiter.md).
 model: inherit
 ---
 

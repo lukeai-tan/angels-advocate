@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # doc_pointers_test.sh — every tool a doc points at must actually exist.
 #
-# CLAUDE.md and README.md are full of `tools/x.sh` references, and CLAUDE.md's oldest surviving
-# convention ("pointer, not a restatement") deliberately leans on them: content lives in one place
-# and everywhere else points at it. That only works while the pointers resolve — and one in this
-# repo has already gone stale undetected, which is exactly the failure a human eye does not catch
-# on a 550-line file that loads every turn.
+# The Arbiter spec (.claude/rules/arbiter.md), README.md, CLAUDE.md, and the calibration notes are
+# full of `tools/x.sh` references, and the spec's oldest surviving convention ("pointer, not a
+# restatement") deliberately leans on them: content lives in one place and everywhere else points at
+# it. That only works while the pointers resolve — and one in this repo has already gone stale
+# undetected, which is exactly the failure a human eye does not catch on a spec that loads every turn.
 #
 # The house remedy for docs-vs-code drift here is a mechanical sweep, never an eyeball, so this is
 # that sweep: extract every tools/… path the docs mention and assert the file is on disk. It is a
@@ -16,7 +16,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # tools/
 ROOT="$(cd "$DIR/.." && pwd)"
 pass=0 fail=0
 
-for doc in CLAUDE.md README.md; do
+for doc in CLAUDE.md README.md .claude/rules/arbiter.md docs/calibration-notes.md; do
   path="$ROOT/$doc"
   [ -f "$path" ] || { echo "FAIL  $doc — not found at $path"; fail=$((fail+1)); continue; }
 

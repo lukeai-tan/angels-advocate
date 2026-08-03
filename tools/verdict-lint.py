@@ -7,7 +7,7 @@ A 2026-07-29 structural debate proposed a cross-model "verdict-auditor" agent th
 audit the Arbiter's *reasoning*. The debate rejected the agent form: auditing "anchoring" or
 "manufactured balance" is unfalsifiable from a transcript (a genuinely stronger Angel argument
 and a biased Arbiter produce identical records), so such a role can only rubber-stamp or
-hallucinate — the exact false-confidence costume CLAUDE.md forbids.
+hallucinate — the exact false-confidence costume the Arbiter spec forbids.
 
 But one slice of the idea IS falsifiable and, crucially, is NOT covered by the `verifier`: the
 verifier is handed only the verdict's Dealbreakers *line*, never the Devil's raw transcript
@@ -22,7 +22,7 @@ WHAT IT CHECKS (all mechanical, all falsifiable — see tools/tests/verdict_lint
      says "none raised" while the Devil raised >=1, that is a hard FAIL.
   2. Well-formedness — every bullet carries a recognised disposition
      (resolved / accepted / accepting / refuted).
-  3. Refuted-with-evidence — CLAUDE.md allows `refuted` ONLY with evidence (a reproduction, a
+  3. Refuted-with-evidence — the Arbiter spec allows `refuted` ONLY with evidence (a reproduction, a
      measurement, a counter-example, a file:line). A `refuted` bullet with no evidence token -> FAIL.
 
 WHAT IT DELIBERATELY DOES NOT CHECK
@@ -46,7 +46,7 @@ import sys
 
 # A disposition keyword marks a bullet as a real, disposed dealbreaker.
 _DISPOSITIONS = ("resolved", "accepting", "accepted", "refuted")
-# Evidence tokens that make a `refuted` legitimate (CLAUDE.md: "refuted only with evidence").
+# Evidence tokens that make a `refuted` legitimate (Arbiter spec: "refuted only with evidence").
 _EVIDENCE = re.compile(
     r"(?i)("
     r"reproduc|test|measur|benchmark|counter-?example|verified|ran it|output|"

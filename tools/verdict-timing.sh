@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verdict-timing.sh — was the 😈 block written BEFORE the work, or after it?
 #
-# CLAUDE.md's anti-retrospective rule rests on an ordering claim: the Devil's block tends to be
+# The Arbiter spec's anti-retrospective rule rests on an ordering claim: the Devil's block tends to be
 # composed after the fix already landed. That is a timestamp, not a statistic — this reads it
 # straight out of the session transcripts and reports declared timing against measured timing.
 #

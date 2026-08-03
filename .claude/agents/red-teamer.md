@@ -7,7 +7,7 @@ tools: Glob, Grep, Read, Bash
 # Arbiter runs on Opus; if YOUR Arbiter runs on Sonnet, change this to `opus` (or any
 # non-Arbiter model) or the independence is lost. No `Agent` tool: nesting is withheld
 # from every cross-model role, because a helper would inherit the Arbiter's model and
-# silently collapse the independence this role exists to provide. See CLAUDE.md.
+# silently collapse the independence this role exists to provide. See the Arbiter spec (.claude/rules/arbiter.md).
 model: claude-sonnet-4-6
 ---
 
